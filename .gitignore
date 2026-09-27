@@ -1,0 +1,7 @@
+/clickup
+/clickup-tui
+*.exe
+dist/
+.DS_Store
+.env
+.env.*
