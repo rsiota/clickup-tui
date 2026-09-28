@@ -148,7 +148,8 @@ func parseAddTime(s string) (string, time.Duration, error) {
 func (m Model) viewOverlay() string {
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(accent).
+		BorderForeground(line).
+		Foreground(fg).
 		Padding(0, 1).
 		Width(max(m.width-4, 20))
 
