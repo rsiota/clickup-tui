@@ -79,6 +79,14 @@ func (t Task) Body() string {
 	return t.Description
 }
 
+// PlainBody prefers the API description field (no extra markdown payload).
+func (t Task) PlainBody() string {
+	if strings.TrimSpace(t.Description) != "" {
+		return t.Description
+	}
+	return t.MarkdownDescription
+}
+
 func (t Task) DueTime() time.Time {
 	if t.DueDate == 0 {
 		return time.Time{}

@@ -64,8 +64,13 @@ type todayMsg struct {
 	err     error
 }
 
-type detailMsg struct {
-	task     clickup.Task
+type detailTaskMsg struct {
+	task clickup.Task
+	err  error
+}
+
+type detailCommentsMsg struct {
+	taskID   string
 	comments []clickup.Comment
 	err      error
 }
@@ -111,9 +116,12 @@ type Model struct {
 	search    listState
 	searchQ   string
 
-	detail     *clickup.Task
-	comments   []clickup.Comment
-	fromTab    tab
+	detail         *clickup.Task
+	comments       []clickup.Comment
+	taskCache      map[string]clickup.Task
+	detailLoading    bool
+	commentsLoading  bool
+	fromTab          tab
 	viewport   viewport.Model
 	vpReady    bool
 
@@ -231,6 +239,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.booted = true
 		m.err = msg.err
 		m.today.setTasks(msg.tasks)
+		m.rebuildTaskCache(msg.tasks)
 		m.timesheet.setEntries(msg.entries)
 		m.today.cursor = firstTodayIndex(msg.tasks, m.now)
 		m.today.offset = m.weekEnsureVisible(m.today.cursor, 0)
@@ -245,6 +254,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		if msg.err == nil {
 			m.today.setTasks(msg.tasks)
+			m.rebuildTaskCache(msg.tasks)
 			m.timesheet.setEntries(msg.entries)
 			m.today.cursor = firstTodayIndex(msg.tasks, m.now)
 			m.today.offset = m.weekEnsureVisible(m.today.cursor, 0)
@@ -252,14 +262,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case detailMsg:
+	case detailTaskMsg:
+		m.detailLoading = false
 		m.loading = false
-		m.err = msg.err
-		if msg.err == nil {
+		if msg.err != nil {
+			m.err = msg.err
+			if m.detail == nil {
+				return m, nil
+			}
+		} else if msg.task.ID != "" {
 			t := msg.task
 			m.detail = &t
-			m.comments = msg.comments
+			m.cacheTask(t)
+			m.err = nil
 			m.refreshViewport()
+		}
+		return m, nil
+
+	case detailCommentsMsg:
+		m.commentsLoading = false
+		if m.detail != nil && m.detail.ID == msg.taskID {
+			if msg.err != nil {
+				m.err = msg.err
+			} else {
+				m.comments = msg.comments
+				if !m.detailLoading {
+					m.err = nil
+				}
+				m.refreshViewport()
+			}
 		}
 		return m, nil
 
@@ -278,6 +309,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.searchQ = msg.query
 		if msg.err == nil {
 			m.search.setTasks(msg.tasks)
+			m.cacheTasks(msg.tasks)
 			m.status = fmt.Sprintf("%d matches", len(msg.tasks))
 		}
 		return m, nil
@@ -291,7 +323,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.input.Blur()
 			m.comment.Blur()
 			if msg.then != nil {
-				m.loading = true
+				if m.detail != nil {
+					m.detailLoading = true
+				} else {
+					m.loading = true
+				}
 				return m, msg.then
 			}
 		}
@@ -394,26 +430,52 @@ func (m Model) loadTimesheet() tea.Cmd {
 }
 
 func (m Model) loadDetail(id string) tea.Cmd {
-	ws := m.workspace.ID.String()
+	return tea.Batch(m.fetchTaskDetail(id), m.fetchTaskComments(id))
+}
+
+func (m Model) fetchTaskDetail(id string) tea.Cmd {
+	ws := m.workspaceID()
+	client := m.client
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		task, err := m.client.GetTask(ctx, ws, id)
+		task, err := client.GetTask(ctx, ws, id)
 		if err != nil {
-			return detailMsg{err: err}
+			return detailTaskMsg{err: err}
 		}
-		comments, err := m.client.ListComments(ctx, ws, task.ID)
+		return detailTaskMsg{task: *task}
+	}
+}
+
+func (m Model) fetchTaskComments(id string) tea.Cmd {
+	ws := m.workspaceID()
+	client := m.client
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		comments, err := client.ListComments(ctx, ws, id)
 		if err != nil {
-			return detailMsg{task: *task, err: err}
+			return detailCommentsMsg{taskID: id, err: err}
 		}
-		return detailMsg{task: *task, comments: comments}
+		return detailCommentsMsg{taskID: id, comments: comments}
 	}
 }
 
 func (m Model) openTask(id string) (tea.Model, tea.Cmd) {
 	m.fromTab = m.tab
-	m.loading = true
 	m.err = nil
+	m.detailLoading = true
+	m.commentsLoading = true
+	m.comments = nil
+
+	if t, ok := m.lookupTask(id); ok {
+		cached := t
+		m.detail = &cached
+	} else {
+		stub := clickup.Task{ID: id, Name: "…"}
+		m.detail = &stub
+	}
+	m.refreshViewport()
 	return m, m.loadDetail(id)
 }
 
@@ -516,6 +578,10 @@ func (m Model) viewFooter() string {
 
 	var status string
 	switch {
+	case m.detailLoading:
+		status = m.spin.View() + " loading task"
+	case m.commentsLoading:
+		status = m.spin.View() + " loading comments"
 	case m.loading:
 		status = m.spin.View() + " loading"
 	case m.err != nil:

@@ -92,12 +92,27 @@ func (c *Client) WeekTasks(ctx context.Context, workspace string, userID int, no
 	return all, nil
 }
 
-func (c *Client) GetTask(ctx context.Context, workspace, id string) (*Task, error) {
+type GetTaskOptions struct {
+	// IncludeMarkdown asks ClickUp for markdown_description (large; usually unnecessary in the TUI).
+	IncludeMarkdown bool
+}
+
+func (c *Client) GetTask(ctx context.Context, workspace, id string, opts ...GetTaskOptions) (*Task, error) {
 	path := fmt.Sprintf("/v2/task/%s", id) + taskScopeQuery(id, workspace)
-	if !strings.Contains(path, "?") {
-		path += "?include_markdown_description=true"
-	} else {
-		path += "&include_markdown_description=true"
+	includeMD := false
+	if len(opts) > 0 && opts[0].IncludeMarkdown {
+		includeMD = true
+	}
+	q := url.Values{}
+	if includeMD {
+		q.Set("include_markdown_description", "true")
+	}
+	if enc := q.Encode(); enc != "" {
+		if strings.Contains(path, "?") {
+			path += "&" + enc
+		} else {
+			path += "?" + enc
+		}
 	}
 	var task Task
 	if err := c.do(ctx, http.MethodGet, path, nil, &task); err != nil {

@@ -55,12 +55,9 @@ func locationLine(t clickup.Task) string {
 }
 
 func renderBody(text string, width int) string {
-	text = strings.TrimSpace(text)
+	text = sanitizeTaskContent(text)
 	if text == "" {
 		return mutedStyle.Render("(no description)")
-	}
-	if looksLikeHTML(text) {
-		text = stripHTML(text)
 	}
 	if width < 20 {
 		width = 20

@@ -18,6 +18,8 @@ func (m Model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "backspace":
 		m.detail = nil
 		m.comments = nil
+		m.detailLoading = false
+		m.commentsLoading = false
 		m.tab = m.fromTab
 		m.status = ""
 		m.err = nil
@@ -27,7 +29,8 @@ func (m Model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "t":
 		return m.openTimeForm(m.detail.Ref())
 	case "r":
-		m.loading = true
+		m.detailLoading = true
+		m.commentsLoading = true
 		return m, m.loadDetail(m.detail.ID)
 	}
 
@@ -59,9 +62,6 @@ func (m Model) viewDetail(height int) string {
 	if m.detail == nil {
 		return ""
 	}
-	if m.loading && m.detail.Name == "" {
-		return " " + m.spin.View() + " opening task…"
-	}
 	m.viewport.Height = max(height, 3)
 	m.viewport.Width = max(m.width-2, 20)
 	return m.viewport.View()
@@ -86,9 +86,21 @@ func (m Model) detailContent(width int) string {
 	}
 	fmt.Fprintf(&b, "%s\n\n", mutedStyle.Render(strings.Join(meta, "  ·  ")))
 
-	b.WriteString(renderBody(t.Body(), width))
+	if body := strings.TrimSpace(t.PlainBody()); body != "" {
+		b.WriteString(renderBody(body, width))
+	} else if m.detailLoading {
+		b.WriteString(mutedStyle.Render("(loading description…)\n"))
+	} else {
+		b.WriteString(mutedStyle.Render("(no description)"))
+	}
 	b.WriteString("\n\n")
-	fmt.Fprintf(&b, "%s\n", headerStyle.Render(fmt.Sprintf("COMMENTS (%d)", len(m.comments))))
+	commentsLabel := "COMMENTS"
+	if m.commentsLoading && len(m.comments) == 0 {
+		commentsLabel = "COMMENTS (loading…)"
+	} else if len(m.comments) > 0 {
+		commentsLabel = fmt.Sprintf("COMMENTS (%d)", len(m.comments))
+	}
+	fmt.Fprintf(&b, "%s\n", headerStyle.Render(commentsLabel))
 
 	if len(m.comments) == 0 {
 		b.WriteString(mutedStyle.Render("No comments yet."))
@@ -106,7 +118,7 @@ func (m Model) detailContent(width int) string {
 		if ts := c.Time(); !ts.IsZero() {
 			when = ts.Local().Format("2 Jan 15:04")
 		}
-		fmt.Fprintf(&b, "\n%s\n%s\n", titleStyle.Render(who)+"  "+mutedStyle.Render(when), wrapPlain(c.CommentText, width))
+		fmt.Fprintf(&b, "\n%s\n%s\n", titleStyle.Render(who)+"  "+mutedStyle.Render(when), wrapPlain(sanitizeComment(c.CommentText), width))
 	}
 	return b.String()
 }
