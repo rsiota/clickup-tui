@@ -18,11 +18,12 @@ func (m Model) openSearch() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	h := max(m.height-6, 3)
 	switch msg.String() {
 	case "up", "k":
-		m.search.move(-1)
+		m.search.moveFlat(-1, h)
 	case "down", "j":
-		m.search.move(1)
+		m.search.moveFlat(1, h)
 	case "enter":
 		if t, ok := m.search.task(); ok {
 			return m.openTask(t.ID)
@@ -53,7 +54,7 @@ func (m Model) viewSearch(height int) string {
 		}
 		return b.String()
 	}
-	b.WriteString(m.renderTaskList(tasks, m.search.cursor, max(height-2, 1)))
+	b.WriteString(m.renderTaskList(tasks, m.search.cursor, m.search.offset, max(height-2, 1)))
 	return b.String()
 }
 

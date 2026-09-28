@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"html"
 	"regexp"
 	"strings"
@@ -32,21 +31,12 @@ func dueLabel(t clickup.Task, now time.Time) string {
 	start := startOfDay(now)
 	switch {
 	case due.Before(start):
-		days := int(start.Sub(due).Hours() / 24)
-		if days < 1 {
-			days = 1
-		}
-		return fmt.Sprintf("-%dd", days)
+		return due.Format("Mon 2")
 	case due.Before(start.Add(24 * time.Hour)):
 		return "today"
 	default:
-		return due.Format("2 Jan")
+		return due.Format("Mon 2")
 	}
-}
-
-func isOverdue(t clickup.Task, now time.Time) bool {
-	due := t.DueTime()
-	return !due.IsZero() && due.Before(startOfDay(now))
 }
 
 func startOfDay(t time.Time) time.Time {

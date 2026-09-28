@@ -14,6 +14,7 @@ const pageSize = 100
 
 type SearchOptions struct {
 	Assignees     []string
+	DueAfter      time.Time
 	DueBefore     time.Time
 	IncludeClosed bool
 	Subtasks      bool
@@ -34,6 +35,10 @@ func (c *Client) SearchTasks(ctx context.Context, workspace string, opts SearchO
 	for _, a := range opts.Assignees {
 		params.Add("assignees[]", a)
 	}
+	if !opts.DueAfter.IsZero() {
+		// due_date_gt is exclusive; subtract 1ms so the start day is included.
+		params.Set("due_date_gt", strconv.FormatInt(opts.DueAfter.UnixMilli()-1, 10))
+	}
 	if !opts.DueBefore.IsZero() {
 		params.Set("due_date_lt", strconv.FormatInt(opts.DueBefore.UnixMilli(), 10))
 	}
@@ -50,15 +55,29 @@ func (c *Client) SearchTasks(ctx context.Context, workspace string, opts SearchO
 	return resp.Tasks, nil
 }
 
-// TodayTasks returns open tasks assigned to the user that are due today or overdue.
-func (c *Client) TodayTasks(ctx context.Context, workspace string, userID int, now time.Time) ([]Task, error) {
+// WeekBounds returns Monday 00:00 and next Monday 00:00 in now's location.
+func WeekBounds(now time.Time) (time.Time, time.Time) {
+	start := startOfWeek(now)
+	return start, start.AddDate(0, 0, 7)
+}
+
+func startOfWeek(now time.Time) time.Time {
 	loc := now.Location()
-	startOfTomorrow := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc).Add(24 * time.Hour)
+	day := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
+	// Monday = 0 … Sunday = 6
+	offset := (int(day.Weekday()) + 6) % 7
+	return day.AddDate(0, 0, -offset)
+}
+
+// WeekTasks returns open tasks assigned to the user that are due this week (Mon–Sun).
+func (c *Client) WeekTasks(ctx context.Context, workspace string, userID int, now time.Time) ([]Task, error) {
+	start, end := WeekBounds(now)
 	var all []Task
 	for page := 0; page < 10; page++ {
 		tasks, err := c.SearchTasks(ctx, workspace, SearchOptions{
 			Assignees: []string{strconv.Itoa(userID)},
-			DueBefore: startOfTomorrow,
+			DueAfter:  start,
+			DueBefore: end,
 			Subtasks:  true,
 			Page:      page,
 		})

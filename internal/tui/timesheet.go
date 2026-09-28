@@ -10,17 +10,20 @@ import (
 )
 
 func (m Model) updateTimesheet(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	h := max(m.height-6, 3)
 	switch msg.String() {
 	case "up", "k":
-		m.timesheet.move(-1)
+		m.timesheet.moveFlat(-1, h)
 	case "down", "j":
-		m.timesheet.move(1)
+		m.timesheet.moveFlat(1, h)
 	case "g":
 		m.timesheet.cursor = 0
+		m.timesheet.offset = 0
 	case "G":
 		if n := len(m.timesheet.items); n > 0 {
 			m.timesheet.cursor = n - 1
 		}
+		m.timesheet.offset = ensureVisible(m.timesheet.cursor, m.timesheet.offset, h)
 	case "enter":
 		if e, ok := m.timesheet.entry(); ok && e.Task.ID != "" {
 			return m.openTask(e.Task.ID)
@@ -56,10 +59,7 @@ func (m Model) viewTimesheet(height int) string {
 	}
 
 	avail := max(height-2, 1)
-	start := 0
-	if m.timesheet.cursor >= avail {
-		start = m.timesheet.cursor - avail + 1
-	}
+	start := ensureVisible(m.timesheet.cursor, m.timesheet.offset, avail)
 	nameWidth := max(m.width-28, 12)
 	end := min(start+avail, len(entries))
 	for i := start; i < end; i++ {

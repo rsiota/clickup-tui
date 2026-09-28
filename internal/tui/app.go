@@ -28,7 +28,7 @@ const (
 func (t tab) title() string {
 	switch t {
 	case tabToday:
-		return "today"
+		return "week"
 	case tabTime:
 		return "time"
 	case tabSearch:
@@ -177,7 +177,7 @@ func (m Model) bootstrap() tea.Cmd {
 			return bootMsg{err: err}
 		}
 
-		tasks, err := m.client.TodayTasks(ctx, ws.ID.String(), user.ID, time.Now())
+		tasks, err := m.client.WeekTasks(ctx, ws.ID.String(), user.ID, time.Now())
 		if err != nil {
 			return bootMsg{user: *user, workspace: ws, err: err}
 		}
@@ -210,6 +210,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.syncSizes()
+		if m.booted && m.tab == tabToday && m.detail == nil {
+			m.today.offset = m.weekEnsureVisible(m.today.cursor, m.today.offset)
+		}
 		return m, nil
 
 	case spinner.TickMsg:
@@ -229,6 +232,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		m.today.setTasks(msg.tasks)
 		m.timesheet.setEntries(msg.entries)
+		m.today.cursor = firstTodayIndex(msg.tasks, m.now)
+		m.today.offset = m.weekEnsureVisible(m.today.cursor, 0)
 		if m.cfg.Workspace == "" {
 			m.cfg.Workspace = msg.workspace.ID.String()
 			_ = m.cfg.Save()
@@ -241,6 +246,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			m.today.setTasks(msg.tasks)
 			m.timesheet.setEntries(msg.entries)
+			m.today.cursor = firstTodayIndex(msg.tasks, m.now)
+			m.today.offset = m.weekEnsureVisible(m.today.cursor, 0)
 			m.status = fmt.Sprintf("Refreshed %d tasks", len(msg.tasks))
 		}
 		return m, nil
@@ -367,7 +374,7 @@ func (m Model) loadToday() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 		defer cancel()
-		tasks, err := m.client.TodayTasks(ctx, ws, uid, time.Now())
+		tasks, err := m.client.WeekTasks(ctx, ws, uid, time.Now())
 		if err != nil {
 			return todayMsg{err: err}
 		}
@@ -470,7 +477,7 @@ func (m Model) viewCurrentList(height int) string {
 
 func (m Model) viewHeader() string {
 	tabs := []string{
-		m.tabLabel(tabToday, "1 today"),
+		m.tabLabel(tabToday, "1 week"),
 		m.tabLabel(tabTime, "2 time"),
 		m.tabLabel(tabSearch, "3 search"),
 	}
@@ -557,6 +564,11 @@ func (m *listState) move(delta int) {
 		return
 	}
 	m.cursor = clamp(m.cursor+delta, 0, len(m.items)-1)
+}
+
+func (m *listState) moveFlat(delta, height int) {
+	m.move(delta)
+	m.offset = ensureVisible(m.cursor, m.offset, height)
 }
 
 func (m *listState) task() (clickup.Task, bool) {

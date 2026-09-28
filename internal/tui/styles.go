@@ -22,7 +22,6 @@ var (
 	cursorStyle  = lipgloss.NewStyle().Foreground(accent).Background(selectBg).Bold(true)
 	headerStyle  = lipgloss.NewStyle().Foreground(muted).Bold(true)
 	statusChip   = lipgloss.NewStyle().Foreground(muted)
-	overdueStyle = lipgloss.NewStyle().Foreground(danger)
 	tabActive    = lipgloss.NewStyle().Bold(true).Foreground(accent).Underline(true)
 	tabIdle      = lipgloss.NewStyle().Foreground(muted)
 	helpStyle    = lipgloss.NewStyle().Foreground(muted)
