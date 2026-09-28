@@ -440,7 +440,8 @@ func (m Model) View() string {
 	if m.overlay != overlayNone {
 		overlay = m.viewOverlay()
 	}
-	used := lipgloss.Height(header) + lipgloss.Height(footer)
+	// header + blank spacer before body + footer (+ overlay)
+	used := lipgloss.Height(header) + 1 + lipgloss.Height(footer)
 	if overlay != "" {
 		used += lipgloss.Height(overlay) + 1
 	}
@@ -455,13 +456,22 @@ func (m Model) View() string {
 	default:
 		body = m.viewCurrentList(bodyH)
 	}
+	body = padHeight(body, bodyH)
 
-	parts := []string{header, body}
+	parts := []string{header, "", body}
 	if overlay != "" {
 		parts = append(parts, overlay)
 	}
 	parts = append(parts, footer)
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+}
+
+func padHeight(s string, height int) string {
+	h := lipgloss.Height(s)
+	if h >= height {
+		return s
+	}
+	return s + strings.Repeat("\n", height-h)
 }
 
 func (m Model) viewCurrentList(height int) string {
@@ -477,11 +487,11 @@ func (m Model) viewCurrentList(height int) string {
 
 func (m Model) viewHeader() string {
 	tabs := []string{
-		m.tabLabel(tabToday, "1 week"),
-		m.tabLabel(tabTime, "2 time"),
-		m.tabLabel(tabSearch, "3 search"),
+		m.tabLabel(tabToday, "1 WEEK"),
+		m.tabLabel(tabTime, "2 TIME"),
+		m.tabLabel(tabSearch, "3 SEARCH"),
 	}
-	left := titleStyle.Render("clickup") + "  " + strings.Join(tabs, "  ")
+	left := strings.Join(tabs, "  ")
 	rightParts := []string{}
 	if m.workspace.Name != "" {
 		rightParts = append(rightParts, m.workspace.Name)
@@ -502,21 +512,22 @@ func (m Model) tabLabel(t tab, label string) string {
 }
 
 func (m Model) viewFooter() string {
-	var bits []string
-	if m.loading {
-		bits = append(bits, m.spin.View()+" loading")
+	help := helpStyle.Render(m.helpText())
+
+	var status string
+	switch {
+	case m.loading:
+		status = m.spin.View() + " loading"
+	case m.err != nil:
+		status = errStyle.Render(m.err.Error())
+	case m.status != "":
+		status = okStyle.Render(m.status)
 	}
-	if m.err != nil {
-		bits = append(bits, errStyle.Render(m.err.Error()))
-	} else if m.status != "" {
-		bits = append(bits, okStyle.Render(m.status))
+
+	if status == "" {
+		return help
 	}
-	help := m.helpText()
-	line1 := strings.Join(bits, "  ")
-	if line1 == "" {
-		return helpStyle.Render(help)
-	}
-	return line1 + "\n" + helpStyle.Render(help)
+	return status + "\n" + help
 }
 
 func (m Model) helpText() string {

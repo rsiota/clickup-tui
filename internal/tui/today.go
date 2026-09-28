@@ -120,13 +120,13 @@ func (m Model) viewToday(height int) string {
 	logged := clickup.FormatMillis(totalLogged(entriesOf(m.timesheet)))
 	start, end := clickup.WeekBounds(m.now)
 	rangeLabel := fmt.Sprintf("%s – %s", start.Format("2 Jan"), end.Add(-time.Nanosecond).Format("2 Jan"))
-	fmt.Fprintf(&b, " %s\n", mutedStyle.Render(fmt.Sprintf("%s · %d tasks · %s logged today", rangeLabel, len(tasks), logged)))
+	// Summary line, then one blank line, then day headers.
+	fmt.Fprintf(&b, " %s\n\n", mutedStyle.Render(fmt.Sprintf("%s · %d tasks · %s logged today", rangeLabel, len(tasks), logged)))
 
-	avail := max(height-1, 1)
+	avail := max(height-2, 1)
 	rows := m.weekRows(tasks)
-	// Keep offset coherent if the window resized.
 	offset := ensureVisible(rowIndexForCursor(rows, m.today.cursor), m.today.offset, avail)
-	b.WriteString(renderRows(rows, m.today.cursor, offset, avail, max(m.width-30, 16), false))
+	b.WriteString(renderRows(rows, m.today.cursor, offset, avail, max(m.width-52, 12), false))
 	return b.String()
 }
 
@@ -144,7 +144,7 @@ func (m Model) renderTaskList(tasks []clickup.Task, cursor, offset, height int) 
 		rows = append(rows, listRow{task: &t, index: i})
 	}
 	offset = ensureVisible(cursor, offset, height)
-	return renderRows(rows, cursor, offset, height, max(m.width-36, 16), true)
+	return renderRows(rows, cursor, offset, height, max(m.width-48, 12), true)
 }
 
 func (m Model) weekRows(tasks []clickup.Task) []listRow {
@@ -232,28 +232,36 @@ func renderRows(rows []listRow, cursor, offset, height, nameWidth int, showDue b
 	for i := offset; i < len(rows) && shown < height; i++ {
 		r := rows[i]
 		if r.header != "" {
-			label := strings.ToUpper(r.header)
+			style := dayStyle
 			if r.today {
-				fmt.Fprintf(&b, " %s\n", titleStyle.Render(label))
-			} else {
-				fmt.Fprintf(&b, " %s\n", headerStyle.Render(label))
+				style = dayTodayStyle
 			}
+			fmt.Fprintf(&b, " %s\n", style.Render(r.header))
 			shown++
 			continue
 		}
 		t := *r.task
-		name := truncateRunes(visibleName(t.Name), nameWidth)
+		selected := r.index == cursor
+		marker := " "
+		if selected {
+			marker = ">"
+		}
+		badge := statusBadge(t.Status)
 		ref := padRight(truncateRunes(t.Ref(), 10), 10)
-		status := padRight(truncateRunes(t.Status.Status, 12), 12)
-		line := fmt.Sprintf("  %s  %s  %s", ref, name, statusChip.Render(status))
+		name := truncateRunes(visibleName(t.Name), nameWidth)
 		if showDue {
-			line = fmt.Sprintf("%s  %s", line, dueLabel(t, now))
+			if due := dueLabel(t, now); due != "" {
+				name = name + "  " + mutedStyle.Render(due)
+			}
 		}
-		if r.index == cursor {
-			line = cursorStyle.Render(">" + line[1:])
+
+		if selected {
+			marker = cursorStyle.Render(marker)
+			badge = cursorStyle.Render(badge)
+			ref = cursorStyle.Render(ref)
+			name = cursorStyle.Render(name)
 		}
-		b.WriteString(line)
-		b.WriteByte('\n')
+		fmt.Fprintf(&b, "%s %s %s %s\n", marker, badge, ref, name)
 		shown++
 	}
 	return b.String()
