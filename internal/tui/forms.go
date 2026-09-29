@@ -225,7 +225,7 @@ func (m Model) editTime(entryID string, d time.Duration) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		if err := m.client.UpdateTimeEntry(ctx, ws, entryID, &d, nil); err != nil {
+		if err := m.client.UpdateTimeEntry(ctx, ws, entryID, clickup.TimeEntryUpdate{Duration: &d}); err != nil {
 			return doneMsg{err: err}
 		}
 		return doneMsg{status: "Updated to " + clickup.FormatDuration(d), then: m.loadTimesheet()}

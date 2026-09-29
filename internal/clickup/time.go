@@ -77,17 +77,27 @@ func (c *Client) CreateTimeEntry(ctx context.Context, workspace, taskID string, 
 	return nil, fmt.Errorf("clickup: empty time entry response")
 }
 
-func (c *Client) UpdateTimeEntry(ctx context.Context, workspace, entryID string, duration *time.Duration, start *time.Time) error {
+// TimeEntryUpdate is a partial update for an existing time entry.
+type TimeEntryUpdate struct {
+	Duration    *time.Duration
+	Start       *time.Time
+	Description *string
+}
+
+func (c *Client) UpdateTimeEntry(ctx context.Context, workspace, entryID string, upd TimeEntryUpdate) error {
 	req := UpdateTimeEntryRequest{}
-	if duration != nil {
-		ms := duration.Milliseconds()
+	if upd.Duration != nil {
+		ms := upd.Duration.Milliseconds()
 		req.Duration = &ms
 	}
-	if start != nil {
-		ms := start.UnixMilli()
+	if upd.Start != nil {
+		ms := upd.Start.UnixMilli()
 		req.Start = &ms
 	}
-	if req.Duration == nil && req.Start == nil {
+	if upd.Description != nil {
+		req.Description = upd.Description
+	}
+	if req.Duration == nil && req.Start == nil && req.Description == nil {
 		return fmt.Errorf("nothing to update")
 	}
 	return c.do(ctx, http.MethodPut, fmt.Sprintf("/v2/team/%s/time_entries/%s", workspace, entryID), req, nil)

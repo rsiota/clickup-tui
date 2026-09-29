@@ -11,14 +11,21 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+const (
+	timeColStart    = 0
+	timeColDuration = 1
+	timeColNote     = 2
+	timeColTask     = 3
+	timeColCount    = 4
+)
+
 func (m *Model) updateTimesheet(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	h := max(m.height-6, 3)
-	ncols := 3 // START DURATION TASK
-	m.timesheet.clampCol(ncols)
+	m.timesheet.clampCol(timeColCount)
 	if keyIsEnter(msg) {
 		if e, ok := m.timesheet.entry(); ok {
 			switch m.timesheet.col {
-			case 0, 1: // START / DURATION
+			case timeColStart, timeColDuration, timeColNote:
 				return m.beginCellEdit(e, m.timesheet.col)
 			default:
 				if e.Task.ID != "" {
@@ -43,9 +50,9 @@ func (m *Model) updateTimesheet(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "down", "j":
 		m.timesheet.moveFlat(1, h)
 	case "left", "h":
-		m.timesheet.moveCol(-1, ncols)
+		m.timesheet.moveCol(-1, timeColCount)
 	case "right", "l":
-		m.timesheet.moveCol(1, ncols)
+		m.timesheet.moveCol(1, timeColCount)
 	case "g":
 		m.timesheet.cursor = 0
 		m.timesheet.offset = 0
@@ -57,8 +64,8 @@ func (m *Model) updateTimesheet(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "e":
 		if e, ok := m.timesheet.entry(); ok {
 			col := m.timesheet.col
-			if col > 1 {
-				col = 1 // default to duration when on TASK
+			if col >= timeColTask {
+				col = timeColDuration // default to duration when on TASK
 			}
 			return m.beginCellEdit(e, col)
 		}
@@ -85,13 +92,17 @@ func (m *Model) beginCellEdit(e clickup.TimeEntry, col int) (tea.Model, tea.Cmd)
 
 	preset := ""
 	switch col {
-	case 0:
+	case timeColStart:
 		if ts := e.StartTime(); !ts.IsZero() {
 			preset = ts.Local().Format("15:04")
 		}
 		m.input.Placeholder = "9:30"
 		m.input.CharLimit = 5
-	default:
+	case timeColNote:
+		preset = e.Description
+		m.input.Placeholder = "note"
+		m.input.CharLimit = 200
+	default: // duration
 		if e.Duration.Int64() > 0 {
 			preset = clickup.FormatDuration(time.Duration(e.Duration.Int64()) * time.Millisecond)
 		}
@@ -129,10 +140,6 @@ func (m *Model) updateCellEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m *Model) commitCellEdit() (tea.Model, tea.Cmd) {
 	val := strings.TrimSpace(m.input.Value())
-	if val == "" {
-		m.err = fmt.Errorf("value is empty")
-		return m, nil
-	}
 	entryID := m.formID
 	col := m.timesheet.col
 	day := m.timeDay
@@ -141,7 +148,11 @@ func (m *Model) commitCellEdit() (tea.Model, tea.Cmd) {
 	}
 
 	switch col {
-	case 0:
+	case timeColStart:
+		if val == "" {
+			m.err = fmt.Errorf("value is empty")
+			return m, nil
+		}
 		start, err := clickup.ParseClockOnDay(val, day)
 		if err != nil {
 			m.err = err
@@ -151,8 +162,23 @@ func (m *Model) commitCellEdit() (tea.Model, tea.Cmd) {
 		m.err = nil
 		m.cellEdit = false
 		m.input.Blur()
-		return m, m.patchTimeEntry(entryID, nil, &start, "Start → "+start.Format("15:04"))
-	default:
+		return m, m.patchTimeEntry(entryID, clickup.TimeEntryUpdate{Start: &start}, "Start → "+start.Format("15:04"))
+	case timeColNote:
+		note := val // empty clears the note
+		m.loading = true
+		m.err = nil
+		m.cellEdit = false
+		m.input.Blur()
+		status := "Note cleared"
+		if note != "" {
+			status = "Note updated"
+		}
+		return m, m.patchTimeEntry(entryID, clickup.TimeEntryUpdate{Description: &note}, status)
+	default: // duration
+		if val == "" {
+			m.err = fmt.Errorf("value is empty")
+			return m, nil
+		}
 		d, err := clickup.ParseDuration(val)
 		if err != nil {
 			m.err = err
@@ -162,16 +188,16 @@ func (m *Model) commitCellEdit() (tea.Model, tea.Cmd) {
 		m.err = nil
 		m.cellEdit = false
 		m.input.Blur()
-		return m, m.patchTimeEntry(entryID, &d, nil, "Duration → "+clickup.FormatDuration(d))
+		return m, m.patchTimeEntry(entryID, clickup.TimeEntryUpdate{Duration: &d}, "Duration → "+clickup.FormatDuration(d))
 	}
 }
 
-func (m Model) patchTimeEntry(entryID string, duration *time.Duration, start *time.Time, status string) tea.Cmd {
+func (m Model) patchTimeEntry(entryID string, upd clickup.TimeEntryUpdate, status string) tea.Cmd {
 	ws := m.workspaceID()
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		if err := m.client.UpdateTimeEntry(ctx, ws, entryID, duration, start); err != nil {
+		if err := m.client.UpdateTimeEntry(ctx, ws, entryID, upd); err != nil {
 			return doneMsg{err: err}
 		}
 		return doneMsg{status: status, then: m.loadTimesheet()}
@@ -213,27 +239,32 @@ func (m Model) viewTimesheet(height int) string {
 		}
 		name := e.Task.Name
 		if name == "" {
-			name = e.Description
-		}
-		if name == "" {
 			name = e.Task.ID
 		}
 		if name == "" {
 			name = "(no task)"
 		}
+		note := strings.TrimSpace(e.Description)
+		noteCell := plainCell(note, cols[timeColNote].Width)
+		if note == "" {
+			noteCell = mutedStyle.Render(plainCell("—", cols[timeColNote].Width))
+		}
 
-		startCell := plainCell(when, cols[0].Width)
-		durCell := plainCell(clickup.FormatMillis(e.Duration.Int64()), cols[1].Width)
+		startCell := plainCell(when, cols[timeColStart].Width)
+		durCell := plainCell(clickup.FormatMillis(e.Duration.Int64()), cols[timeColDuration].Width)
+		taskCell := plainCell(name, cols[timeColTask].Width)
 		editing := m.cellEdit && i == m.timesheet.cursor
 		if editing {
 			// Leave one column for the cursor so padVisible doesn't ellipsize.
 			m.input.Width = max(cols[m.timesheet.col].Width-1, 1)
 			ed := padVisible(m.input.View(), cols[m.timesheet.col].Width)
 			switch m.timesheet.col {
-			case 0:
+			case timeColStart:
 				startCell = ed
-			case 1:
+			case timeColDuration:
 				durCell = ed
+			case timeColNote:
+				noteCell = ed
 			}
 		}
 
@@ -241,7 +272,8 @@ func (m Model) viewTimesheet(height int) string {
 			Cells: []string{
 				startCell,
 				durCell,
-				plainCell(name, cols[2].Width),
+				noteCell,
+				taskCell,
 			},
 			Selected: i == m.timesheet.cursor,
 			FocusCol: m.timesheet.col,

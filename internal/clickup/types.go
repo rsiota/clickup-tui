@@ -181,7 +181,8 @@ type CreateTimeEntryRequest struct {
 }
 
 type UpdateTimeEntryRequest struct {
-	Duration *int64 `json:"duration,omitempty"`
-	Start    *int64 `json:"start,omitempty"`
-	Tid      string `json:"tid,omitempty"`
+	Duration    *int64  `json:"duration,omitempty"`
+	Start       *int64  `json:"start,omitempty"`
+	Description *string `json:"description,omitempty"`
+	Tid         string  `json:"tid,omitempty"`
 }

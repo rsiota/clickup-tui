@@ -70,17 +70,21 @@ func taskTableCols(totalWidth int) []tableCol {
 	}
 }
 
-// timeTableCols returns START / DURATION / TASK columns.
+// timeTableCols returns START / DURATION / NOTE / TASK for the available width.
 func timeTableCols(totalWidth int) []tableCol {
 	// START needs room for HH:MM plus the inline-edit cursor.
 	startW := 7
 	// Size to the header; typical values ("1h 30m") fit. Running timers may truncate.
 	durW := len("DURATION")
-	frame := boxFrameOverhead(3)
-	nameW := max(totalWidth-frame-startW-durW, 12)
+	frame := boxFrameOverhead(4)
+	rest := max(totalWidth-frame-startW-durW, 24)
+	// Split remaining between NOTE and TASK; NOTE gets a bit less.
+	noteW := max(rest/3, len("NOTE"))
+	nameW := max(rest-noteW, 12)
 	return []tableCol{
 		{Title: "START", Width: startW},
 		{Title: "DURATION", Width: durW},
+		{Title: "NOTE", Width: noteW},
 		{Title: "TASK", Width: nameW},
 	}
 }
