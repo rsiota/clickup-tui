@@ -11,6 +11,8 @@ import (
 )
 
 func (m *Model) updateToday(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	ncols := 4 // DAY STATUS ID TASK
+	m.today.clampCol(ncols)
 	if keyIsEnter(msg) {
 		if t, ok := m.today.task(); ok {
 			return m, m.openTask(t.ID)
@@ -24,6 +26,10 @@ func (m *Model) updateToday(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "down", "j":
 		m.moveWeek(1)
 		return m.afterWeekNav()
+	case "left", "h":
+		m.today.moveCol(-1, ncols)
+	case "right", "l":
+		m.today.moveCol(1, ncols)
 	case "g":
 		m.moveWeekToEdge(false)
 	case "G":
@@ -124,12 +130,13 @@ func (m Model) viewToday(height int) string {
 	rangeLabel := fmt.Sprintf("%s – %s", start.Format("2 Jan"), end.Add(-time.Nanosecond).Format("2 Jan"))
 	fmt.Fprintf(&b, " %s\n\n", mutedStyle.Render(fmt.Sprintf("%s · %d tasks · %s logged today", rangeLabel, len(tasks), logged)))
 
-	cols := weekTableCols(max(m.width-2, 40))
+	statusW := weekStatusColumnWidth(tasks)
+	cols := weekTableCols(max(m.width-2, 40), statusW)
 	// Header + separator + bottom border consume 3 lines inside the box.
 	avail := max(height-2-3, 1)
 	rows := m.weekRows(tasks)
 	offset := ensureVisible(rowIndexForCursor(rows, m.today.cursor), m.today.offset, avail)
-	b.WriteString(renderWeekBox(rows, m.today.cursor, offset, avail, cols))
+	b.WriteString(renderWeekBox(rows, m.today.cursor, m.today.col, offset, avail, cols))
 	return b.String()
 }
 
@@ -140,7 +147,7 @@ type listRow struct {
 	index  int
 }
 
-func (m Model) renderTaskList(tasks []clickup.Task, cursor, offset, height int) string {
+func (m Model) renderTaskList(tasks []clickup.Task, cursor, col, offset, height int) string {
 	rows := make([]listRow, 0, len(tasks))
 	for i := range tasks {
 		t := tasks[i]
@@ -149,7 +156,7 @@ func (m Model) renderTaskList(tasks []clickup.Task, cursor, offset, height int) 
 	cols := taskTableCols(max(m.width-2, 40))
 	avail := max(height-3, 1)
 	offset = ensureVisible(cursor, offset, avail)
-	return renderTaskBox(rows, cursor, offset, avail, cols)
+	return renderTaskBox(rows, cursor, col, offset, avail, cols)
 }
 
 func (m Model) weekRows(tasks []clickup.Task) []listRow {
@@ -171,8 +178,10 @@ func (m Model) weekRows(tasks []clickup.Task) []listRow {
 		day := start.AddDate(0, 0, i)
 		isToday := day.Equal(todayStart)
 		label := day.Format("Mon 2 Jan")
-		if isToday {
-			label = day.Format("Mon 2") + " · today"
+		if len(byDay[i]) == 0 {
+			// Keep every day of the week visible, even with no tasks.
+			rows = append(rows, listRow{day: label, today: isToday, index: -1})
+			continue
 		}
 		for _, it := range byDay[i] {
 			tt := it.task
@@ -222,7 +231,7 @@ func ensureVisible(sel, offset, height int) int {
 	return offset
 }
 
-func renderWeekBox(rows []listRow, cursor, offset, height int, cols []tableCol) string {
+func renderWeekBox(rows []listRow, cursor, col, offset, height int, cols []tableCol) string {
 	if height < 1 {
 		height = 1
 	}
@@ -232,29 +241,38 @@ func renderWeekBox(rows []listRow, cursor, offset, height int, cols []tableCol) 
 	boxRows := make([]boxRow, 0, height)
 	for i := offset; i < len(rows) && len(boxRows) < height; i++ {
 		r := rows[i]
-		if r.task == nil {
-			continue
-		}
-		t := *r.task
-		selected := r.index == cursor
 		day := plainCell(r.day, cols[0].Width)
 		if r.today {
 			day = dayTodayStyle.Render(day)
 		}
+		if r.task == nil {
+			empty := mutedStyle.Render(plainCell("—", cols[1].Width))
+			boxRows = append(boxRows, boxRow{
+				Cells: []string{
+					day,
+					empty,
+					mutedStyle.Render(plainCell("—", cols[2].Width)),
+					mutedStyle.Render(plainCell("—", cols[3].Width)),
+				},
+			})
+			continue
+		}
+		t := *r.task
 		boxRows = append(boxRows, boxRow{
 			Cells: []string{
 				day,
-				statusBadge(t.Status),
+				statusBadgeWeek(t.Status),
 				plainCell(t.Ref(), cols[2].Width),
 				plainCell(t.Name, cols[3].Width),
 			},
-			Selected: selected,
+			Selected: r.index == cursor,
+			FocusCol: col,
 		})
 	}
 	return renderBoxTable(cols, boxRows)
 }
 
-func renderTaskBox(rows []listRow, cursor, offset, height int, cols []tableCol) string {
+func renderTaskBox(rows []listRow, cursor, col, offset, height int, cols []tableCol) string {
 	if height < 1 {
 		height = 1
 	}
@@ -275,6 +293,7 @@ func renderTaskBox(rows []listRow, cursor, offset, height int, cols []tableCol) 
 				plainCell(t.Name, cols[2].Width),
 			},
 			Selected: r.index == cursor,
+			FocusCol: col,
 		})
 	}
 	return renderBoxTable(cols, boxRows)

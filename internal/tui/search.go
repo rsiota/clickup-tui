@@ -19,6 +19,8 @@ func (m *Model) openSearch() (tea.Model, tea.Cmd) {
 
 func (m *Model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	h := max(m.height-6, 3)
+	ncols := 3 // STATUS ID TASK
+	m.search.clampCol(ncols)
 	if keyIsEnter(msg) {
 		if t, ok := m.search.task(); ok {
 			return m, m.openTask(t.ID)
@@ -30,6 +32,10 @@ func (m *Model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.search.moveFlat(-1, h)
 	case "down", "j":
 		m.search.moveFlat(1, h)
+	case "left", "h":
+		m.search.moveCol(-1, ncols)
+	case "right", "l":
+		m.search.moveCol(1, ncols)
 	case "t":
 		if t, ok := m.search.task(); ok {
 			return m.openTimeForm(t.Ref())
@@ -56,7 +62,7 @@ func (m Model) viewSearch(height int) string {
 		}
 		return b.String()
 	}
-	b.WriteString(m.renderTaskList(tasks, m.search.cursor, m.search.offset, max(height-2, 1)))
+	b.WriteString(m.renderTaskList(tasks, m.search.cursor, m.search.col, m.search.offset, max(height-2, 1)))
 	return b.String()
 }
 

@@ -11,6 +11,8 @@ import (
 
 func (m *Model) updateTimesheet(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	h := max(m.height-6, 3)
+	ncols := 3 // START DURATION TASK
+	m.timesheet.clampCol(ncols)
 	if keyIsEnter(msg) {
 		if e, ok := m.timesheet.entry(); ok && e.Task.ID != "" {
 			return m, m.openTask(e.Task.ID)
@@ -22,6 +24,10 @@ func (m *Model) updateTimesheet(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.timesheet.moveFlat(-1, h)
 	case "down", "j":
 		m.timesheet.moveFlat(1, h)
+	case "left", "h":
+		m.timesheet.moveCol(-1, ncols)
+	case "right", "l":
+		m.timesheet.moveCol(1, ncols)
 	case "g":
 		m.timesheet.cursor = 0
 		m.timesheet.offset = 0
@@ -91,6 +97,7 @@ func (m Model) viewTimesheet(height int) string {
 				plainCell(name, cols[2].Width),
 			},
 			Selected: i == m.timesheet.cursor,
+			FocusCol: m.timesheet.col,
 		})
 	}
 	b.WriteString(renderBoxTable(cols, boxRows))

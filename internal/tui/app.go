@@ -136,6 +136,7 @@ type listState struct {
 	items  []any
 	cursor int
 	offset int
+	col    int // focused cell column (creel-style)
 }
 
 func New(client *clickup.Client, cfg *config.Config) *Model {
@@ -244,7 +245,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.rebuildTaskCache(msg.tasks)
 		m.timesheet.setEntries(msg.entries)
 		m.today.cursor = firstTodayIndex(msg.tasks, m.now)
-		m.today.offset = m.weekEnsureVisible(m.today.cursor, 0)
+		// Keep the week pinned from Monday so earlier days stay on screen.
+		m.today.offset = 0
 		if m.cfg.Workspace == "" {
 			m.cfg.Workspace = msg.workspace.ID.String()
 			_ = m.cfg.Save()
@@ -263,7 +265,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.rebuildTaskCache(msg.tasks)
 			m.timesheet.setEntries(msg.entries)
 			m.today.cursor = firstTodayIndex(msg.tasks, m.now)
-			m.today.offset = m.weekEnsureVisible(m.today.cursor, 0)
+			m.today.offset = 0
 			m.status = fmt.Sprintf("Refreshed %d tasks", len(msg.tasks))
 			m.rebuildPrefetchQueue(msg.tasks)
 			return m, m.kickPrefetch()
@@ -651,11 +653,11 @@ func (m Model) helpText() string {
 	}
 	switch m.tab {
 	case tabTime:
-		return "↑/↓ move   enter open   e edit   a add   d delete   r refresh   / search   q quit"
+		return "↑/↓/←/→ move   enter open   e edit   a add   d delete   r refresh   / search   q quit"
 	case tabSearch:
-		return "↑/↓ move   enter open   / search   r refresh   q quit"
+		return "↑/↓/←/→ move   enter open   / search   r refresh   q quit"
 	default:
-		return "↑/↓ move   enter open   t log time   r refresh   / search   q quit"
+		return "↑/↓/←/→ move   enter open   t log time   r refresh   / search   q quit"
 	}
 }
 
@@ -673,6 +675,21 @@ func (m *listState) setEntries(entries []clickup.TimeEntry) {
 		m.items[i] = entries[i]
 	}
 	m.cursor = clamp(m.cursor, 0, max(len(m.items)-1, 0))
+}
+
+func (m *listState) moveCol(delta, ncols int) {
+	if ncols <= 0 {
+		return
+	}
+	m.col = clamp(m.col+delta, 0, ncols-1)
+}
+
+func (m *listState) clampCol(ncols int) {
+	if ncols <= 0 {
+		m.col = 0
+		return
+	}
+	m.col = clamp(m.col, 0, ncols-1)
 }
 
 func (m *listState) move(delta int) {

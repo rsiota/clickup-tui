@@ -22,6 +22,7 @@ var (
 	ok       = lipgloss.AdaptiveColor{Light: "#1F8A65", Dark: "#5CB896"}
 	line     = lipgloss.AdaptiveColor{Light: "#D9D5CF", Dark: "#3C3935"}
 	selectBg = lipgloss.AdaptiveColor{Light: "#E6E5E0", Dark: "#3C3935"}
+	rowWash  = lipgloss.AdaptiveColor{Light: "#EEEDE8", Dark: "#343230"}
 )
 
 var (
@@ -30,6 +31,7 @@ var (
 	errStyle      = lipgloss.NewStyle().Foreground(danger)
 	okStyle       = lipgloss.NewStyle().Foreground(ok)
 	cursorStyle   = lipgloss.NewStyle().Foreground(accent).Background(selectBg).Bold(true)
+	rowWashStyle  = lipgloss.NewStyle().Background(rowWash)
 	dayStyle      = lipgloss.NewStyle().Bold(true).Foreground(accent)
 	dayTodayStyle = lipgloss.NewStyle().Bold(true).Underline(true).Foreground(accent)
 	headerStyle   = lipgloss.NewStyle().Foreground(muted).Bold(true)
@@ -64,6 +66,15 @@ func statusBadge(st clickup.TaskStatus) string {
 		BorderForeground(lipgloss.Color(accentLine)).
 		Padding(0, 1).
 		Render(label)
+}
+
+// statusBadgeWeek is plain uppercase status text for the week table.
+func statusBadgeWeek(st clickup.TaskStatus) string {
+	label := strings.TrimSpace(st.Status)
+	if label == "" {
+		return "—"
+	}
+	return strings.ToUpper(label)
 }
 
 // statusWash tints the background with ClickUp’s status colour, kept light on light terminals.

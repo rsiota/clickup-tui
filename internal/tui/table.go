@@ -18,6 +18,7 @@ type tableCol struct {
 type boxRow struct {
 	Cells    []string
 	Selected bool
+	FocusCol int // highlighted cell when Selected; -1 = whole row
 }
 
 func badgeColumnWidth() int {
@@ -31,10 +32,19 @@ func boxFrameOverhead(ncols int) int {
 	return 2 + (ncols - 1) + ncols*2
 }
 
+func weekStatusColumnWidth(tasks []clickup.Task) int {
+	w := len("STATUS")
+	for _, t := range tasks {
+		if cw := lipgloss.Width(statusBadgeWeek(t.Status)); cw > w {
+			w = cw
+		}
+	}
+	return max(w, 6)
+}
+
 // weekTableCols returns DAY / STATUS / ID / TASK for the available width.
-func weekTableCols(totalWidth int) []tableCol {
+func weekTableCols(totalWidth, statusW int) []tableCol {
 	dayW := 14
-	statusW := badgeColumnWidth()
 	idW := 10
 	frame := boxFrameOverhead(4)
 	nameW := max(totalWidth-frame-dayW-statusW-idW, 12)
@@ -148,7 +158,12 @@ func renderBoxTable(cols []tableCol, rows []boxRow) string {
 			}
 			val = padVisible(val, c.Width)
 			if r.Selected {
-				val = cursorStyle.Render(val)
+				focus := r.FocusCol < 0 || r.FocusCol == j
+				if focus {
+					val = cursorStyle.Render(val)
+				} else {
+					val = rowWashStyle.Render(val)
+				}
 			}
 			b.WriteString(" " + val + " ")
 			b.WriteString(border.Render("│"))
