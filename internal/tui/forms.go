@@ -24,14 +24,14 @@ func (m *Model) openTimeForm(taskRef string) (tea.Model, tea.Cmd) {
 	m.overlay = overlayTime
 	m.formID = taskRef
 	m.input.SetValue("")
-	m.input.Placeholder = "1h 30m"
+	m.input.Placeholder = "1h30m or 9:30 1h30m"
 	return m, m.input.Focus()
 }
 
 func (m *Model) openAddTime() (tea.Model, tea.Cmd) {
 	m.overlay = overlayAddTime
 	m.input.SetValue("")
-	m.input.Placeholder = "TASK-ID 1h30m"
+	m.input.Placeholder = "TASK-ID 1h30m  or  TASK-ID 9:30 1h"
 	return m, m.input.Focus()
 }
 
@@ -106,13 +106,13 @@ func (m *Model) submitInput() (tea.Model, tea.Cmd) {
 		m.input.Blur()
 		return m, m.runSearch(val)
 	case overlayTime:
-		d, err := clickup.ParseDuration(val)
+		log, err := clickup.ParseTimeLog(val, time.Now())
 		if err != nil {
 			m.loading = false
 			m.err = err
 			return m, nil
 		}
-		return m, m.logTime(m.formID, d)
+		return m, m.logTime(m.formID, log)
 	case overlayEditTime:
 		d, err := clickup.ParseDuration(val)
 		if err != nil {
@@ -122,27 +122,27 @@ func (m *Model) submitInput() (tea.Model, tea.Cmd) {
 		}
 		return m, m.editTime(m.formID, d)
 	case overlayAddTime:
-		ref, dur, err := parseAddTime(val)
+		ref, log, err := parseAddTime(val)
 		if err != nil {
 			m.loading = false
 			m.err = err
 			return m, nil
 		}
-		return m, m.logTime(ref, dur)
+		return m, m.logTime(ref, log)
 	}
 	return m, nil
 }
 
-func parseAddTime(s string) (string, time.Duration, error) {
+func parseAddTime(s string) (string, clickup.TimeLog, error) {
 	parts := strings.Fields(s)
 	if len(parts) < 2 {
-		return "", 0, fmt.Errorf("use: TASK-ID 1h30m")
+		return "", clickup.TimeLog{}, fmt.Errorf("use: TASK-ID 1h30m  or  TASK-ID 9:30 1h")
 	}
-	d, err := clickup.ParseDuration(strings.Join(parts[1:], " "))
+	log, err := clickup.ParseTimeLog(strings.Join(parts[1:], " "), time.Now())
 	if err != nil {
-		return "", 0, err
+		return "", clickup.TimeLog{}, err
 	}
-	return parts[0], d, nil
+	return parts[0], log, nil
 }
 
 func (m Model) viewOverlay() string {
@@ -157,11 +157,15 @@ func (m Model) viewOverlay() string {
 	case overlayComment:
 		return box.Render("Comment\n" + m.comment.View())
 	case overlayTime:
-		return box.Render(fmt.Sprintf("Log time on %s\n%s", m.formID, m.input.View()))
+		return box.Render(fmt.Sprintf("Log time on %s\n%s\n%s",
+			m.formID,
+			m.input.View(),
+			mutedStyle.Render("duration  ·  or  start duration  e.g. 9:30 1h30m"),
+		))
 	case overlayEditTime:
 		return box.Render("Update duration\n" + m.input.View())
 	case overlayAddTime:
-		return box.Render("Add time  (TASK-ID duration)\n" + m.input.View())
+		return box.Render("Add time  (TASK-ID [start] duration)\n" + m.input.View())
 	case overlaySearch:
 		return box.Render("Search\n" + m.input.View())
 	case overlayConfirmDelete:
@@ -184,7 +188,7 @@ func (m Model) postComment(text string) tea.Cmd {
 	}
 }
 
-func (m Model) logTime(taskRef string, d time.Duration) tea.Cmd {
+func (m Model) logTime(taskRef string, log clickup.TimeLog) tea.Cmd {
 	ws := m.workspaceID()
 	refreshID := ""
 	if m.detail != nil {
@@ -193,7 +197,7 @@ func (m Model) logTime(taskRef string, d time.Duration) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		if _, err := m.client.CreateTimeEntry(ctx, ws, taskRef, d, time.Now()); err != nil {
+		if _, err := m.client.CreateTimeEntry(ctx, ws, taskRef, log.Duration, log.Start); err != nil {
 			return doneMsg{err: err}
 		}
 		var then tea.Cmd
@@ -202,7 +206,11 @@ func (m Model) logTime(taskRef string, d time.Duration) tea.Cmd {
 		} else {
 			then = m.loadTimesheet()
 		}
-		return doneMsg{status: "Logged " + clickup.FormatDuration(d), then: then}
+		status := "Logged " + clickup.FormatDuration(log.Duration)
+		if !log.Start.IsZero() {
+			status += " from " + log.Start.Format("15:04")
+		}
+		return doneMsg{status: status, then: then}
 	}
 }
 

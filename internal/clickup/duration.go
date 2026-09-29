@@ -8,6 +8,65 @@ import (
 	"unicode"
 )
 
+// TimeLog is a parsed timesheet log: duration and optional start (zero = ends now).
+type TimeLog struct {
+	Duration time.Duration
+	Start    time.Time // zero means entry ends at "now"
+}
+
+// ParseTimeLog understands:
+//   - "1h30m" / "1:30" / "90m"           → duration, ends now
+//   - "9:30 1h30m" / "09:30 1h"          → start today at 9:30 + duration
+func ParseTimeLog(s string, now time.Time) (TimeLog, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return TimeLog{}, fmt.Errorf("empty time log")
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+
+	parts := strings.Fields(s)
+	if len(parts) >= 2 {
+		if start, ok := parseClockTime(parts[0], now); ok {
+			d, err := ParseDuration(strings.Join(parts[1:], " "))
+			if err != nil {
+				return TimeLog{}, err
+			}
+			return TimeLog{Duration: d, Start: start}, nil
+		}
+	}
+
+	d, err := ParseDuration(s)
+	if err != nil {
+		return TimeLog{}, err
+	}
+	return TimeLog{Duration: d}, nil
+}
+
+// parseClockTime parses H:MM / HH:MM as a time on the same calendar day as now.
+func parseClockTime(s string, now time.Time) (time.Time, bool) {
+	s = strings.TrimSpace(s)
+	parts := strings.Split(s, ":")
+	if len(parts) != 2 {
+		return time.Time{}, false
+	}
+	// Reject duration-like lone values handled elsewhere; require digit hours/mins.
+	h, err1 := strconv.Atoi(parts[0])
+	m, err2 := strconv.Atoi(parts[1])
+	if err1 != nil || err2 != nil {
+		return time.Time{}, false
+	}
+	if h < 0 || h > 23 || m < 0 || m > 59 {
+		return time.Time{}, false
+	}
+	// Ambiguity: "1:30" alone is duration; only treat as clock when paired
+	// with another token (caller checks). Here we always accept as clock.
+	loc := now.Location()
+	t := time.Date(now.Year(), now.Month(), now.Day(), h, m, 0, 0, loc)
+	return t, true
+}
+
 // ParseDuration understands timesheet-style inputs:
 // 1h, 1h30m, 1h 30m, 30m, 90m, 1.5h, 1:30, and a bare number (minutes).
 func ParseDuration(s string) (time.Duration, error) {

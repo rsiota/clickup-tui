@@ -41,14 +41,15 @@ func (c *Client) DayEntries(ctx context.Context, workspace string, day time.Time
 	return c.TimeEntries(ctx, workspace, start, end, "")
 }
 
-func (c *Client) CreateTimeEntry(ctx context.Context, workspace, taskID string, duration time.Duration, when time.Time) (*TimeEntry, error) {
+// CreateTimeEntry logs duration on taskID. If start is zero, the entry ends now
+// (start = now − duration). Otherwise start is used as the entry start time.
+func (c *Client) CreateTimeEntry(ctx context.Context, workspace, taskID string, duration time.Duration, start time.Time) (*TimeEntry, error) {
 	if duration <= 0 {
 		return nil, fmt.Errorf("duration must be positive")
 	}
-	if when.IsZero() {
-		when = time.Now()
+	if start.IsZero() {
+		start = time.Now().Add(-duration)
 	}
-	start := when.Add(-duration)
 	path := fmt.Sprintf("/v2/team/%s/time_entries", workspace)
 	if LooksCustomID(taskID) {
 		q := url.Values{}
