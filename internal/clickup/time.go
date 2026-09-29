@@ -77,9 +77,19 @@ func (c *Client) CreateTimeEntry(ctx context.Context, workspace, taskID string, 
 	return nil, fmt.Errorf("clickup: empty time entry response")
 }
 
-func (c *Client) UpdateTimeEntry(ctx context.Context, workspace, entryID string, duration time.Duration) error {
-	ms := duration.Milliseconds()
-	req := UpdateTimeEntryRequest{Duration: &ms}
+func (c *Client) UpdateTimeEntry(ctx context.Context, workspace, entryID string, duration *time.Duration, start *time.Time) error {
+	req := UpdateTimeEntryRequest{}
+	if duration != nil {
+		ms := duration.Milliseconds()
+		req.Duration = &ms
+	}
+	if start != nil {
+		ms := start.UnixMilli()
+		req.Start = &ms
+	}
+	if req.Duration == nil && req.Start == nil {
+		return fmt.Errorf("nothing to update")
+	}
 	return c.do(ctx, http.MethodPut, fmt.Sprintf("/v2/team/%s/time_entries/%s", workspace, entryID), req, nil)
 }
 

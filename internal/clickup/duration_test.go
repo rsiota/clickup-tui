@@ -77,6 +77,21 @@ func TestParseTimeLog(t *testing.T) {
 	}
 }
 
+func TestParseClockOnDay(t *testing.T) {
+	day := time.Date(2026, 3, 30, 12, 0, 0, 0, time.UTC)
+	got, err := ParseClockOnDay("9:30", day)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := time.Date(2026, 3, 30, 9, 30, 0, 0, time.UTC)
+	if !got.Equal(want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+	if _, err := ParseClockOnDay("25:00", day); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
 func TestFormatDuration(t *testing.T) {
 	if got := FormatDuration(90 * time.Minute); got != "1h 30m" {
 		t.Fatalf("got %q", got)

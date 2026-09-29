@@ -18,7 +18,8 @@ type tableCol struct {
 type boxRow struct {
 	Cells    []string
 	Selected bool
-	FocusCol int // highlighted cell when Selected; -1 = whole row
+	FocusCol int  // highlighted cell when Selected; -1 = whole row
+	Editing  bool // when Selected, FocusCol cell is raw inline editor content
 }
 
 func badgeColumnWidth() int {
@@ -71,8 +72,10 @@ func taskTableCols(totalWidth int) []tableCol {
 
 // timeTableCols returns START / DURATION / TASK columns.
 func timeTableCols(totalWidth int) []tableCol {
-	startW := 5
-	durW := 12
+	// START needs room for HH:MM plus the inline-edit cursor.
+	startW := 7
+	// Size to the header; typical values ("1h 30m") fit. Running timers may truncate.
+	durW := len("DURATION")
 	frame := boxFrameOverhead(3)
 	nameW := max(totalWidth-frame-startW-durW, 12)
 	return []tableCol{
@@ -170,11 +173,14 @@ func renderBoxTable(cols []tableCol, rows []boxRow) string {
 			}
 			val = padVisible(val, c.Width)
 			if r.Selected {
-				focus := r.FocusCol < 0 || r.FocusCol == j
-				if focus {
-					val = cursorStyle.Render(val)
-				} else {
-					val = rowWashStyle.Render(val)
+				editing := r.Editing && r.FocusCol == j
+				if !editing {
+					focus := r.FocusCol < 0 || r.FocusCol == j
+					if focus {
+						val = cursorStyle.Render(val)
+					} else {
+						val = rowWashStyle.Render(val)
+					}
 				}
 			}
 			b.WriteString(" " + val + " ")

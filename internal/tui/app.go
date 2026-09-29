@@ -133,6 +133,7 @@ type Model struct {
 	comment textarea.Model
 	input   textinput.Model
 	formID  string
+	cellEdit bool // inline timesheet cell edit (START / DURATION)
 
 	statusCache   map[string][]clickup.ListStatus
 	statusChoices []clickup.ListStatus
@@ -406,6 +407,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			m.status = msg.status
 			m.overlay = overlayNone
+			m.cellEdit = false
 			m.input.Blur()
 			m.comment.Blur()
 			if msg.then != nil {
@@ -421,6 +423,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		if m.cellEdit {
+			return m.updateCellEdit(msg)
+		}
 		if m.overlay != overlayNone {
 			return m.updateOverlay(msg)
 		}
@@ -734,6 +739,9 @@ func (m Model) viewFooter() string {
 }
 
 func (m Model) helpText() string {
+	if m.cellEdit {
+		return "enter save   esc cancel"
+	}
 	if m.overlay != overlayNone {
 		switch m.overlay {
 		case overlayComment:
@@ -751,7 +759,7 @@ func (m Model) helpText() string {
 	}
 	switch m.tab {
 	case tabTime:
-		return "[/] day   t today   ↑/↓/←/→ move   enter open   e edit   a add   d delete   r refresh   / search   q quit"
+		return "[/] day   t today   ↑/↓/←/→ move   enter edit/open   e edit   a add   d delete   r refresh   / search   q quit"
 	case tabSearch:
 		return "↑/↓/←/→ move   enter open   s status   t log time   / search   r refresh   q quit"
 	default:

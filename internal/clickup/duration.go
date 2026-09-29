@@ -67,6 +67,15 @@ func parseClockTime(s string, now time.Time) (time.Time, bool) {
 	return t, true
 }
 
+// ParseClockOnDay parses H:MM / HH:MM on the given calendar day.
+func ParseClockOnDay(s string, day time.Time) (time.Time, error) {
+	t, ok := parseClockTime(s, day)
+	if !ok {
+		return time.Time{}, fmt.Errorf("use H:MM, like 9:30")
+	}
+	return t, nil
+}
+
 // ParseDuration understands timesheet-style inputs:
 // 1h, 1h30m, 1h 30m, 30m, 90m, 1.5h, 1:30, and a bare number (minutes).
 func ParseDuration(s string) (time.Duration, error) {
