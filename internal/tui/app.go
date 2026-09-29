@@ -48,6 +48,7 @@ const (
 	overlayAddTime
 	overlayEditTime
 	overlayConfirmDelete
+	overlayStatus
 )
 
 type bootMsg struct {
@@ -132,6 +133,13 @@ type Model struct {
 	comment textarea.Model
 	input   textinput.Model
 	formID  string
+
+	statusCache   map[string][]clickup.ListStatus
+	statusChoices []clickup.ListStatus
+	statusCursor  int
+	statusTaskID  string
+	statusListID  string
+	statusCurrent string
 }
 
 type listState struct {
@@ -159,14 +167,15 @@ func New(client *clickup.Client, cfg *config.Config) *Model {
 
 	now := time.Now()
 	return &Model{
-		client:  client,
-		cfg:     cfg,
-		loading: true,
-		spin:    sp,
-		now:     now,
-		timeDay: startOfDay(now),
-		comment: ta,
-		input:   ti,
+		client:      client,
+		cfg:         cfg,
+		loading:     true,
+		spin:        sp,
+		now:         now,
+		timeDay:     startOfDay(now),
+		comment:     ta,
+		input:       ti,
+		statusCache: make(map[string][]clickup.ListStatus),
 	}
 }
 
@@ -351,6 +360,43 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = fmt.Sprintf("%d matches", len(msg.tasks))
 			m.rebuildPrefetchQueue(msg.tasks)
 			return m, m.kickPrefetch()
+		}
+		return m, nil
+
+	case listStatusesMsg:
+		m.loading = false
+		if msg.err != nil {
+			m.err = msg.err
+			if m.overlay == overlayStatus {
+				m.closeStatusPicker()
+			}
+			return m, nil
+		}
+		m.statusCache[msg.listID] = msg.statuses
+		if m.overlay == overlayStatus && m.statusTaskID == msg.taskID && m.statusListID == msg.listID {
+			m.setStatusChoices(msg.statuses, m.statusCurrent)
+		}
+		return m, nil
+
+	case statusUpdatedMsg:
+		m.loading = false
+		if msg.err != nil {
+			m.err = msg.err
+			return m, nil
+		}
+		taskID := msg.task.ID
+		if taskID == "" {
+			taskID = m.statusTaskID
+		}
+		st := msg.task.Status
+		if st.Status == "" {
+			st.Status = msg.status
+		}
+		m.applyTaskStatusLocal(taskID, st)
+		m.closeStatusPicker()
+		m.status = "Status → " + st.Status
+		if m.detail != nil {
+			m.refreshViewport()
 		}
 		return m, nil
 
@@ -694,20 +740,22 @@ func (m Model) helpText() string {
 			return "ctrl+s submit   esc cancel"
 		case overlayConfirmDelete:
 			return "y delete   n/esc cancel"
+		case overlayStatus:
+			return "↑/↓ select   enter apply   esc cancel"
 		default:
 			return "enter submit   esc cancel"
 		}
 	}
 	if m.detail != nil {
-		return "c comment   t log time   r refresh   esc back   q quit"
+		return "c comment   t log time   s status   r refresh   esc back   q quit"
 	}
 	switch m.tab {
 	case tabTime:
 		return "[/] day   t today   ↑/↓/←/→ move   enter open   e edit   a add   d delete   r refresh   / search   q quit"
 	case tabSearch:
-		return "↑/↓/←/→ move   enter open   / search   r refresh   q quit"
+		return "↑/↓/←/→ move   enter open   s status   t log time   / search   r refresh   q quit"
 	default:
-		return "↑/↓/←/→ move   enter open   t log time   r refresh   / search   q quit"
+		return "↑/↓/←/→ move   enter open   s status   t log time   r refresh   / search   q quit"
 	}
 }
 

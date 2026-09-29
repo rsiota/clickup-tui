@@ -15,6 +15,9 @@ func (m *Model) updateToday(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.today.clampCol(ncols)
 	if keyIsEnter(msg) {
 		if t, ok := m.today.task(); ok {
+			if m.today.col == 1 { // STATUS
+				return m.openStatusPicker(t)
+			}
 			return m, m.openTask(t.ID)
 		}
 		return m, nil
@@ -34,6 +37,10 @@ func (m *Model) updateToday(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.moveWeekToEdge(false)
 	case "G":
 		m.moveWeekToEdge(true)
+	case "s":
+		if t, ok := m.today.task(); ok {
+			return m.openStatusPicker(t)
+		}
 	case "t":
 		if t, ok := m.today.task(); ok {
 			return m.openTimeForm(t.Ref())

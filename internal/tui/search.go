@@ -23,6 +23,9 @@ func (m *Model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.search.clampCol(ncols)
 	if keyIsEnter(msg) {
 		if t, ok := m.search.task(); ok {
+			if m.search.col == 0 { // STATUS
+				return m.openStatusPicker(t)
+			}
 			return m, m.openTask(t.ID)
 		}
 		return m, nil
@@ -36,6 +39,10 @@ func (m *Model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.search.moveCol(-1, ncols)
 	case "right", "l":
 		m.search.moveCol(1, ncols)
+	case "s":
+		if t, ok := m.search.task(); ok {
+			return m.openStatusPicker(t)
+		}
 	case "t":
 		if t, ok := m.search.task(); ok {
 			return m.openTimeForm(t.Ref())

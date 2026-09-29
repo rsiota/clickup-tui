@@ -48,6 +48,10 @@ func (m *Model) openEditTime(e clickup.TimeEntry) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) updateOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.overlay == overlayStatus {
+		return m.updateStatusOverlay(msg)
+	}
+
 	if keyIsEsc(msg) {
 		m.overlay = overlayNone
 		m.comment.Blur()
@@ -170,6 +174,8 @@ func (m Model) viewOverlay() string {
 		return box.Render("Search\n" + m.input.View())
 	case overlayConfirmDelete:
 		return box.Render("Delete this time entry?  y / n")
+	case overlayStatus:
+		return box.Render(m.viewStatusOverlay())
 	default:
 		return ""
 	}

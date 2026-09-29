@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -164,4 +165,48 @@ func taskMatches(t Task, needle string) bool {
 		return true
 	}
 	return strings.Contains(strings.ToLower(t.CustomID), needle)
+}
+
+// ListStatusesResponse is the subset of GET /list/{id} we need for status pickers.
+type ListStatusesResponse struct {
+	ID       string       `json:"id"`
+	Statuses []ListStatus `json:"statuses"`
+}
+
+type ListStatus struct {
+	Status     string  `json:"status"`
+	Color      string  `json:"color"`
+	Type       string  `json:"type"`
+	OrderIndex float64 `json:"orderindex"`
+}
+
+func (s ListStatus) TaskStatus() TaskStatus {
+	return TaskStatus{Status: s.Status, Color: s.Color, Type: s.Type}
+}
+
+// GetListStatuses returns the status pipeline for a list, ordered by orderindex.
+func (c *Client) GetListStatuses(ctx context.Context, listID string) ([]ListStatus, error) {
+	if listID == "" {
+		return nil, fmt.Errorf("empty list id")
+	}
+	var resp ListStatusesResponse
+	if err := c.do(ctx, http.MethodGet, "/v2/list/"+listID, nil, &resp); err != nil {
+		return nil, err
+	}
+	statuses := append([]ListStatus(nil), resp.Statuses...)
+	sort.SliceStable(statuses, func(i, j int) bool {
+		return statuses[i].OrderIndex < statuses[j].OrderIndex
+	})
+	return statuses, nil
+}
+
+// UpdateTaskStatus sets a task's status and returns the updated task.
+func (c *Client) UpdateTaskStatus(ctx context.Context, workspace, taskID, status string) (*Task, error) {
+	path := fmt.Sprintf("/v2/task/%s", taskID) + taskScopeQuery(taskID, workspace)
+	body := map[string]string{"status": status}
+	var task Task
+	if err := c.do(ctx, http.MethodPut, path, body, &task); err != nil {
+		return nil, err
+	}
+	return &task, nil
 }
