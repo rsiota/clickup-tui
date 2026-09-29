@@ -17,9 +17,15 @@ func TestRenderBoxTableHasBorders(t *testing.T) {
 		{Cells: []string{"09:30", "Fix login"}},
 		{Cells: []string{"10:00", "Review"}, Selected: true, FocusCol: 1},
 	})
-	for _, want := range []string{"┌", "┐", "├", "┼", "┤", "└", "┘", "│", "START", "TASK", "09:30"} {
+	for _, want := range []string{"┌", "┐", "┼", "└", "┘", "│", "START", "TASK", "09:30"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q in:\n%s", want, out)
+		}
+	}
+	// Creel results-panel style: solid outer frame, no ┬/┴ into the perimeter.
+	for _, bad := range []string{"┬", "┴", "├", "┤"} {
+		if strings.Contains(out, bad) {
+			t.Fatalf("unexpected junction %q in:\n%s", bad, out)
 		}
 	}
 }

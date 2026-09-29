@@ -116,41 +116,53 @@ func plainCell(s string, width int) string {
 	return padRight(truncateRunes(visibleName(s), width), width)
 }
 
-// renderBoxTable draws a creel-style bordered grid.
+// renderBoxTable draws a creel results-panel style grid: a solid dark outer
+// frame (no ┬/┴ into the perimeter) with muted inner column/header dividers.
 func renderBoxTable(cols []tableCol, rows []boxRow) string {
 	if len(cols) == 0 {
 		return ""
 	}
-	border := borderStyle
+	inner := borderStyle
+	outer := tableOuterStyle
 	var b strings.Builder
 
-	writeHRule := func(left, mid, right string) {
-		b.WriteString(border.Render(left))
-		for j, c := range cols {
-			b.WriteString(border.Render(strings.Repeat("─", c.Width+2)))
-			if j < len(cols)-1 {
-				b.WriteString(border.Render(mid))
-			}
-		}
-		b.WriteString(border.Render(right))
-		b.WriteByte('\n')
-	}
-
-	writeHRule("┌", "┬", "┐")
-
-	// Header
-	b.WriteString(border.Render("│"))
+	// Inner content width: each col is " value " (+2) plus a trailing │,
+	// then one leading │ — so sum(width+3) characters between ┌ and ┐.
+	totalInner := 0
 	for _, c := range cols {
-		title := headerStyle.Render(plainCell(c.Title, c.Width))
-		b.WriteString(" " + title + " ")
-		b.WriteString(border.Render("│"))
+		totalInner += c.Width + 3
 	}
+
+	// Top frame: solid outer line, no column junctions.
+	b.WriteString(outer.Render("┌" + strings.Repeat("─", totalInner-1) + "┐"))
 	b.WriteByte('\n')
 
-	writeHRule("├", "┼", "┤")
+	// Header row
+	b.WriteString(outer.Render("│"))
+	for j, c := range cols {
+		title := tableHeaderStyle.Render(plainCell(c.Title, c.Width))
+		b.WriteString(" " + title + " ")
+		if j < len(cols)-1 {
+			b.WriteString(inner.Render("│"))
+		}
+	}
+	b.WriteString(outer.Render("│"))
+	b.WriteByte('\n')
+
+	// Header separator: muted dashes/┼ inside; dark │ at the edges so the
+	// vertical frame stays continuous without mixed-colour joints.
+	b.WriteString(outer.Render("│"))
+	for j, c := range cols {
+		b.WriteString(inner.Render(strings.Repeat("─", c.Width+2)))
+		if j < len(cols)-1 {
+			b.WriteString(inner.Render("┼"))
+		}
+	}
+	b.WriteString(outer.Render("│"))
+	b.WriteByte('\n')
 
 	for _, r := range rows {
-		b.WriteString(border.Render("│"))
+		b.WriteString(outer.Render("│"))
 		for j, c := range cols {
 			val := ""
 			if j < len(r.Cells) {
@@ -166,19 +178,15 @@ func renderBoxTable(cols []tableCol, rows []boxRow) string {
 				}
 			}
 			b.WriteString(" " + val + " ")
-			b.WriteString(border.Render("│"))
+			if j < len(cols)-1 {
+				b.WriteString(inner.Render("│"))
+			}
 		}
+		b.WriteString(outer.Render("│"))
 		b.WriteByte('\n')
 	}
 
-	// Bottom border (no trailing newline — callers join with summary above).
-	b.WriteString(border.Render("└"))
-	for j, c := range cols {
-		b.WriteString(border.Render(strings.Repeat("─", c.Width+2)))
-		if j < len(cols)-1 {
-			b.WriteString(border.Render("┴"))
-		}
-	}
-	b.WriteString(border.Render("┘"))
+	// Bottom frame: solid outer line, no column junctions.
+	b.WriteString(outer.Render("└" + strings.Repeat("─", totalInner-1) + "┘"))
 	return b.String()
 }

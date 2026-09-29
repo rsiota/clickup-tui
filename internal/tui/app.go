@@ -134,7 +134,8 @@ type Model struct {
 
 type listState struct {
 	items  []any
-	cursor int
+	cursor int // task/entry index in items
+	selRow int // week view: selected row in weekRows (-1 unset)
 	offset int
 	col    int // focused cell column (creel-style)
 }
@@ -222,7 +223,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.syncSizes()
 		if m.booted && m.tab == tabToday && m.detail == nil {
-			m.today.offset = m.weekEnsureVisible(m.today.cursor, m.today.offset)
+			m.today.offset = m.weekEnsureVisible(m.today.offset)
 		}
 		return m, nil
 
@@ -245,8 +246,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.rebuildTaskCache(msg.tasks)
 		m.timesheet.setEntries(msg.entries)
 		m.today.cursor = firstTodayIndex(msg.tasks, m.now)
-		// Keep the week pinned from Monday so earlier days stay on screen.
-		m.today.offset = 0
+		m.today.selRow = firstTodaySelRow(msg.tasks, m.now)
+		m.today.offset = ensureVisible(m.today.selRow, 0, m.weekListHeight())
 		if m.cfg.Workspace == "" {
 			m.cfg.Workspace = msg.workspace.ID.String()
 			_ = m.cfg.Save()
@@ -265,7 +266,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.rebuildTaskCache(msg.tasks)
 			m.timesheet.setEntries(msg.entries)
 			m.today.cursor = firstTodayIndex(msg.tasks, m.now)
-			m.today.offset = 0
+			m.today.selRow = firstTodaySelRow(msg.tasks, m.now)
+			m.today.offset = ensureVisible(m.today.selRow, 0, m.weekListHeight())
 			m.status = fmt.Sprintf("Refreshed %d tasks", len(msg.tasks))
 			m.rebuildPrefetchQueue(msg.tasks)
 			return m, m.kickPrefetch()

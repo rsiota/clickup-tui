@@ -42,66 +42,45 @@ func (m *Model) updateToday(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// moveWeek steps to the previous/next task in visual order (top → bottom),
-// so j always goes down the screen and into the next day.
+// moveWeek steps one visual row at a time (including empty days).
 func (m *Model) moveWeek(delta int) {
 	rows := m.weekRows(tasksOf(m.today))
 	if len(rows) == 0 {
 		return
 	}
-	sel := rowIndexForCursor(rows, m.today.cursor)
-	if sel < 0 {
-		// Land on the first visible task.
-		for _, r := range rows {
-			if r.task != nil {
-				m.today.cursor = r.index
-				break
-			}
-		}
-		m.today.offset = m.weekEnsureVisible(m.today.cursor, m.today.offset)
-		return
+	sel := m.weekSelRow(rows)
+	sel = clamp(sel+delta, 0, len(rows)-1)
+	m.today.selRow = sel
+	if rows[sel].task != nil {
+		m.today.cursor = rows[sel].index
 	}
-
-	if delta > 0 {
-		for i := sel + 1; i < len(rows); i++ {
-			if rows[i].task != nil {
-				m.today.cursor = rows[i].index
-				break
-			}
-		}
-	} else {
-		for i := sel - 1; i >= 0; i-- {
-			if rows[i].task != nil {
-				m.today.cursor = rows[i].index
-				break
-			}
-		}
-	}
-	m.today.offset = m.weekEnsureVisible(m.today.cursor, m.today.offset)
+	m.today.offset = ensureVisible(sel, m.today.offset, m.weekListHeight())
 }
 
 func (m *Model) moveWeekToEdge(bottom bool) {
 	rows := m.weekRows(tasksOf(m.today))
-	var pick int = -1
+	if len(rows) == 0 {
+		return
+	}
 	if bottom {
-		for i := len(rows) - 1; i >= 0; i-- {
-			if rows[i].task != nil {
-				pick = rows[i].index
-				break
-			}
-		}
+		m.today.selRow = len(rows) - 1
 	} else {
-		for _, r := range rows {
-			if r.task != nil {
-				pick = r.index
-				break
-			}
-		}
+		m.today.selRow = 0
 	}
-	if pick >= 0 {
-		m.today.cursor = pick
+	if rows[m.today.selRow].task != nil {
+		m.today.cursor = rows[m.today.selRow].index
 	}
-	m.today.offset = m.weekEnsureVisible(m.today.cursor, 0)
+	m.today.offset = ensureVisible(m.today.selRow, 0, m.weekListHeight())
+}
+
+func (m Model) weekSelRow(rows []listRow) int {
+	if m.today.selRow >= 0 && m.today.selRow < len(rows) {
+		return m.today.selRow
+	}
+	if i := rowIndexForCursor(rows, m.today.cursor); i >= 0 {
+		return i
+	}
+	return 0
 }
 
 func (m Model) weekListHeight() int {
@@ -109,13 +88,9 @@ func (m Model) weekListHeight() int {
 	return max(m.height-6, 3)
 }
 
-func (m Model) weekEnsureVisible(cursor, offset int) int {
+func (m Model) weekEnsureVisible(offset int) int {
 	rows := m.weekRows(tasksOf(m.today))
-	sel := rowIndexForCursor(rows, cursor)
-	if sel < 0 {
-		return offset
-	}
-	return ensureVisible(sel, offset, m.weekListHeight())
+	return ensureVisible(m.weekSelRow(rows), offset, m.weekListHeight())
 }
 
 func (m Model) viewToday(height int) string {
@@ -135,8 +110,9 @@ func (m Model) viewToday(height int) string {
 	// Header + separator + bottom border consume 3 lines inside the box.
 	avail := max(height-2-3, 1)
 	rows := m.weekRows(tasks)
-	offset := ensureVisible(rowIndexForCursor(rows, m.today.cursor), m.today.offset, avail)
-	b.WriteString(renderWeekBox(rows, m.today.cursor, m.today.col, offset, avail, cols))
+	sel := m.weekSelRow(rows)
+	offset := ensureVisible(sel, m.today.offset, avail)
+	b.WriteString(renderWeekBox(rows, sel, m.today.col, offset, avail, cols))
 	return b.String()
 }
 
@@ -245,6 +221,7 @@ func renderWeekBox(rows []listRow, cursor, col, offset, height int, cols []table
 		if r.today {
 			day = dayTodayStyle.Render(day)
 		}
+		selected := i == cursor
 		if r.task == nil {
 			empty := mutedStyle.Render(plainCell("—", cols[1].Width))
 			boxRows = append(boxRows, boxRow{
@@ -254,6 +231,8 @@ func renderWeekBox(rows []listRow, cursor, col, offset, height int, cols []table
 					mutedStyle.Render(plainCell("—", cols[2].Width)),
 					mutedStyle.Render(plainCell("—", cols[3].Width)),
 				},
+				Selected: selected,
+				FocusCol: col,
 			})
 			continue
 		}
@@ -265,7 +244,7 @@ func renderWeekBox(rows []listRow, cursor, col, offset, height int, cols []table
 				plainCell(t.Ref(), cols[2].Width),
 				plainCell(t.Name, cols[3].Width),
 			},
-			Selected: r.index == cursor,
+			Selected: selected,
 			FocusCol: col,
 		})
 	}
@@ -297,6 +276,33 @@ func renderTaskBox(rows []listRow, cursor, col, offset, height int, cols []table
 		})
 	}
 	return renderBoxTable(cols, boxRows)
+}
+
+func firstTodaySelRow(tasks []clickup.Task, now time.Time) int {
+	start, _ := clickup.WeekBounds(now)
+	todayStart := startOfDay(now)
+	row := 0
+	for i := 0; i < 7; i++ {
+		day := start.AddDate(0, 0, i)
+		n := 0
+		for _, t := range tasks {
+			if dayIndexInWeek(t.DueTime(), start) == i {
+				n++
+			}
+		}
+		if n == 0 {
+			if day.Equal(todayStart) {
+				return row
+			}
+			row++
+			continue
+		}
+		if day.Equal(todayStart) {
+			return row
+		}
+		row += n
+	}
+	return 0
 }
 
 func firstTodayIndex(tasks []clickup.Task, now time.Time) int {

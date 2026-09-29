@@ -22,18 +22,29 @@ func TestMoveWeekFollowsVisualOrder(t *testing.T) {
 	m.today.setTasks(tasks)
 	// Start on Monday (visual first), even though it is last in items.
 	m.today.cursor = 2
+	m.today.selRow = 0
 
 	m.moveWeek(1)
-	if got := mustTaskID(m); got != "wed" {
-		t.Fatalf("j from Monday → %s, want wed", got)
+	if m.today.selRow != 1 {
+		t.Fatalf("j from Monday → selRow %d, want 1 (Tuesday empty)", m.today.selRow)
 	}
 	m.moveWeek(1)
+	if got := mustTaskID(m); got != "wed" {
+		t.Fatalf("j from Tuesday → %s, want wed", got)
+	}
+	m.moveWeek(1)
+	if m.today.selRow != 3 {
+		t.Fatalf("j from Wednesday → selRow %d, want 3 (Thursday empty)", m.today.selRow)
+	}
+	for i := 0; i < 3; i++ {
+		m.moveWeek(1)
+	}
 	if got := mustTaskID(m); got != "sun" {
-		t.Fatalf("j from Wednesday → %s, want sun", got)
+		t.Fatalf("j to Sunday → %s, want sun", got)
 	}
 	m.moveWeek(-1)
-	if got := mustTaskID(m); got != "wed" {
-		t.Fatalf("k from Sunday → %s, want wed", got)
+	if m.today.selRow != 5 {
+		t.Fatalf("k from Sunday → selRow %d, want 5 (Saturday empty)", m.today.selRow)
 	}
 }
 

@@ -33,8 +33,11 @@ var (
 	cursorStyle   = lipgloss.NewStyle().Foreground(accent).Background(selectBg).Bold(true)
 	rowWashStyle  = lipgloss.NewStyle().Background(rowWash)
 	dayStyle      = lipgloss.NewStyle().Bold(true).Foreground(accent)
-	dayTodayStyle = lipgloss.NewStyle().Bold(true).Underline(true).Foreground(accent)
+	dayTodayStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
 	headerStyle   = lipgloss.NewStyle().Foreground(muted).Bold(true)
+	tableHeaderStyle = lipgloss.NewStyle().Foreground(accent).Bold(true)
+	tableOuterBorder = lipgloss.AdaptiveColor{Light: "#6B675C", Dark: "#6A6660"}
+	tableOuterStyle  = lipgloss.NewStyle().Foreground(tableOuterBorder)
 	tabActive     = lipgloss.NewStyle().Bold(true).Foreground(accent).Underline(true)
 	tabIdle       = lipgloss.NewStyle().Foreground(muted)
 	helpStyle     = lipgloss.NewStyle().Foreground(muted)
