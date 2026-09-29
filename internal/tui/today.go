@@ -122,18 +122,19 @@ func (m Model) viewToday(height int) string {
 	logged := clickup.FormatMillis(totalLogged(entriesOf(m.timesheet)))
 	start, end := clickup.WeekBounds(m.now)
 	rangeLabel := fmt.Sprintf("%s – %s", start.Format("2 Jan"), end.Add(-time.Nanosecond).Format("2 Jan"))
-	// Summary line, then one blank line, then day headers.
 	fmt.Fprintf(&b, " %s\n\n", mutedStyle.Render(fmt.Sprintf("%s · %d tasks · %s logged today", rangeLabel, len(tasks), logged)))
 
-	avail := max(height-2, 1)
+	cols := weekTableCols(max(m.width-2, 40))
+	// Header + separator + bottom border consume 3 lines inside the box.
+	avail := max(height-2-3, 1)
 	rows := m.weekRows(tasks)
 	offset := ensureVisible(rowIndexForCursor(rows, m.today.cursor), m.today.offset, avail)
-	b.WriteString(renderRows(rows, m.today.cursor, offset, avail, max(m.width-52, 12), false))
+	b.WriteString(renderWeekBox(rows, m.today.cursor, offset, avail, cols))
 	return b.String()
 }
 
 type listRow struct {
-	header string
+	day    string
 	today  bool
 	task   *clickup.Task
 	index  int
@@ -145,8 +146,10 @@ func (m Model) renderTaskList(tasks []clickup.Task, cursor, offset, height int) 
 		t := tasks[i]
 		rows = append(rows, listRow{task: &t, index: i})
 	}
-	offset = ensureVisible(cursor, offset, height)
-	return renderRows(rows, cursor, offset, height, max(m.width-48, 12), true)
+	cols := taskTableCols(max(m.width-2, 40))
+	avail := max(height-3, 1)
+	offset = ensureVisible(cursor, offset, avail)
+	return renderTaskBox(rows, cursor, offset, avail, cols)
 }
 
 func (m Model) weekRows(tasks []clickup.Task) []listRow {
@@ -169,13 +172,11 @@ func (m Model) weekRows(tasks []clickup.Task) []listRow {
 		isToday := day.Equal(todayStart)
 		label := day.Format("Mon 2 Jan")
 		if isToday {
-			label += "  ·  today"
+			label = day.Format("Mon 2") + " · today"
 		}
-		rows = append(rows, listRow{header: label, today: isToday})
-
 		for _, it := range byDay[i] {
 			tt := it.task
-			rows = append(rows, listRow{task: &tt, index: it.index})
+			rows = append(rows, listRow{day: label, today: isToday, task: &tt, index: it.index})
 		}
 	}
 	return rows
@@ -221,52 +222,62 @@ func ensureVisible(sel, offset, height int) int {
 	return offset
 }
 
-func renderRows(rows []listRow, cursor, offset, height, nameWidth int, showDue bool) string {
+func renderWeekBox(rows []listRow, cursor, offset, height int, cols []tableCol) string {
 	if height < 1 {
 		height = 1
 	}
 	maxOffset := max(len(rows)-height, 0)
 	offset = clamp(offset, 0, maxOffset)
 
-	var b strings.Builder
-	shown := 0
-	now := time.Now()
-	for i := offset; i < len(rows) && shown < height; i++ {
+	boxRows := make([]boxRow, 0, height)
+	for i := offset; i < len(rows) && len(boxRows) < height; i++ {
 		r := rows[i]
-		if r.header != "" {
-			style := dayStyle
-			if r.today {
-				style = dayTodayStyle
-			}
-			fmt.Fprintf(&b, " %s\n", style.Render(r.header))
-			shown++
+		if r.task == nil {
 			continue
 		}
 		t := *r.task
 		selected := r.index == cursor
-		marker := " "
-		if selected {
-			marker = ">"
+		day := plainCell(r.day, cols[0].Width)
+		if r.today {
+			day = dayTodayStyle.Render(day)
 		}
-		badge := statusBadge(t.Status)
-		ref := padRight(truncateRunes(t.Ref(), 10), 10)
-		name := truncateRunes(visibleName(t.Name), nameWidth)
-		if showDue {
-			if due := dueLabel(t, now); due != "" {
-				name = name + "  " + mutedStyle.Render(due)
-			}
-		}
-
-		if selected {
-			marker = cursorStyle.Render(marker)
-			badge = cursorStyle.Render(badge)
-			ref = cursorStyle.Render(ref)
-			name = cursorStyle.Render(name)
-		}
-		fmt.Fprintf(&b, "%s %s %s %s\n", marker, badge, ref, name)
-		shown++
+		boxRows = append(boxRows, boxRow{
+			Cells: []string{
+				day,
+				statusBadge(t.Status),
+				plainCell(t.Ref(), cols[2].Width),
+				plainCell(t.Name, cols[3].Width),
+			},
+			Selected: selected,
+		})
 	}
-	return b.String()
+	return renderBoxTable(cols, boxRows)
+}
+
+func renderTaskBox(rows []listRow, cursor, offset, height int, cols []tableCol) string {
+	if height < 1 {
+		height = 1
+	}
+	maxOffset := max(len(rows)-height, 0)
+	offset = clamp(offset, 0, maxOffset)
+
+	boxRows := make([]boxRow, 0, height)
+	for i := offset; i < len(rows) && len(boxRows) < height; i++ {
+		r := rows[i]
+		if r.task == nil {
+			continue
+		}
+		t := *r.task
+		boxRows = append(boxRows, boxRow{
+			Cells: []string{
+				statusBadge(t.Status),
+				plainCell(t.Ref(), cols[1].Width),
+				plainCell(t.Name, cols[2].Width),
+			},
+			Selected: r.index == cursor,
+		})
+	}
+	return renderBoxTable(cols, boxRows)
 }
 
 func firstTodayIndex(tasks []clickup.Task, now time.Time) int {

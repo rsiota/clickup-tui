@@ -49,28 +49,31 @@ func (m Model) viewTimesheet(height int) string {
 	entries := entriesOf(m.timesheet)
 	total := clickup.FormatMillis(totalLogged(entries))
 	var b strings.Builder
-	fmt.Fprintf(&b, " %s\n", mutedStyle.Render(fmt.Sprintf("%d entries · %s today", len(entries), total)))
+	fmt.Fprintf(&b, " %s\n\n", mutedStyle.Render(fmt.Sprintf("%d entries · %s today", len(entries), total)))
+
+	cols := timeTableCols(max(m.width-2, 40))
+	avail := max(height-2-3, 1)
 
 	if len(entries) == 0 {
 		if m.loading {
 			b.WriteString(" " + m.spin.View() + " loading timesheet…")
 			return b.String()
 		}
+		b.WriteString(renderBoxTable(cols, nil))
+		b.WriteString("\n")
 		b.WriteString(mutedStyle.Render(" No time logged today. Press a to add, or t on a task."))
 		return b.String()
 	}
 
-	avail := max(height-2, 1)
 	start := ensureVisible(m.timesheet.cursor, m.timesheet.offset, avail)
-	nameWidth := max(m.width-28, 12)
 	end := min(start+avail, len(entries))
+	boxRows := make([]boxRow, 0, end-start)
 	for i := start; i < end; i++ {
 		e := entries[i]
-		when := "     "
+		when := "—"
 		if ts := e.StartTime(); !ts.IsZero() {
 			when = ts.Local().Format("15:04")
 		}
-		dur := padRight(clickup.FormatMillis(e.Duration.Int64()), 12)
 		name := e.Task.Name
 		if name == "" {
 			name = e.Description
@@ -81,12 +84,15 @@ func (m Model) viewTimesheet(height int) string {
 		if name == "" {
 			name = "(no task)"
 		}
-		line := fmt.Sprintf("  %s  %s  %s", when, dur, truncateRunes(visibleName(name), nameWidth))
-		if i == m.timesheet.cursor {
-			line = cursorStyle.Render(">" + line[1:])
-		}
-		b.WriteString(line)
-		b.WriteByte('\n')
+		boxRows = append(boxRows, boxRow{
+			Cells: []string{
+				plainCell(when, cols[0].Width),
+				plainCell(clickup.FormatMillis(e.Duration.Int64()), cols[1].Width),
+				plainCell(name, cols[2].Width),
+			},
+			Selected: i == m.timesheet.cursor,
+		})
 	}
+	b.WriteString(renderBoxTable(cols, boxRows))
 	return b.String()
 }
