@@ -110,6 +110,8 @@ type Model struct {
 	err      error
 	spin     spinner.Model
 	now      time.Time
+	timeDay  time.Time // Time tab: day being viewed
+	loggedToday int64  // calendar-today total for Week header
 
 	today     listState
 	timesheet listState
@@ -155,12 +157,14 @@ func New(client *clickup.Client, cfg *config.Config) *Model {
 	ti.CharLimit = 64
 	ti.Width = 40
 
+	now := time.Now()
 	return &Model{
 		client:  client,
 		cfg:     cfg,
 		loading: true,
 		spin:    sp,
-		now:     time.Now(),
+		now:     now,
+		timeDay: startOfDay(now),
 		comment: ta,
 		input:   ti,
 	}
@@ -244,7 +248,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		m.today.setTasks(msg.tasks)
 		m.rebuildTaskCache(msg.tasks)
+		m.timeDay = startOfDay(m.now)
 		m.timesheet.setEntries(msg.entries)
+		m.loggedToday = totalLogged(msg.entries)
 		m.today.cursor = firstTodayIndex(msg.tasks, m.now)
 		m.today.selRow = firstTodaySelRow(msg.tasks, m.now)
 		m.today.offset = ensureVisible(m.today.selRow, 0, m.weekListHeight())
@@ -264,7 +270,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			m.today.setTasks(msg.tasks)
 			m.rebuildTaskCache(msg.tasks)
-			m.timesheet.setEntries(msg.entries)
+			m.loggedToday = totalLogged(msg.entries)
+			// Don't clobber Time-tab browsing of another day.
+			if startOfDay(m.timeDay).Equal(startOfDay(m.now)) {
+				m.timesheet.setEntries(msg.entries)
+			}
 			m.today.cursor = firstTodayIndex(msg.tasks, m.now)
 			m.today.selRow = firstTodaySelRow(msg.tasks, m.now)
 			m.today.offset = ensureVisible(m.today.selRow, 0, m.weekListHeight())
@@ -323,7 +333,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		if msg.err == nil {
 			m.timesheet.setEntries(msg.entries)
-			m.status = fmt.Sprintf("Refreshed %s logged", clickup.FormatMillis(totalLogged(msg.entries)))
+			total := totalLogged(msg.entries)
+			if startOfDay(m.timeDay).Equal(startOfDay(m.now)) {
+				m.loggedToday = total
+			}
+			m.status = fmt.Sprintf("Refreshed %s logged", clickup.FormatMillis(total))
 		}
 		return m, nil
 
@@ -448,12 +462,46 @@ func (m Model) loadToday() tea.Cmd {
 
 func (m Model) loadTimesheet() tea.Cmd {
 	ws := m.workspace.ID.String()
+	day := m.timeDay
+	if day.IsZero() {
+		day = time.Now()
+	}
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		entries, err := m.client.DayEntries(ctx, ws, time.Now())
+		entries, err := m.client.DayEntries(ctx, ws, day)
 		return timesheetMsg{entries: entries, err: err}
 	}
+}
+
+// shiftTimeDay moves the Time tab one calendar day and reloads entries.
+func (m *Model) shiftTimeDay(delta int) tea.Cmd {
+	if m.timeDay.IsZero() {
+		m.timeDay = startOfDay(m.now)
+	}
+	m.timeDay = startOfDay(m.timeDay.AddDate(0, 0, delta))
+	m.timesheet.cursor = 0
+	m.timesheet.offset = 0
+	m.timesheet.col = 0
+	m.loading = true
+	m.err = nil
+	m.status = ""
+	return m.loadTimesheet()
+}
+
+func (m *Model) jumpTimeToday() tea.Cmd {
+	today := startOfDay(m.now)
+	if startOfDay(m.timeDay).Equal(today) {
+		return nil
+	}
+	m.timeDay = today
+	m.timesheet.cursor = 0
+	m.timesheet.offset = 0
+	m.timesheet.col = 0
+	m.loading = true
+	m.err = nil
+	m.status = ""
+	return m.loadTimesheet()
 }
 
 func (m Model) loadDetail(id string) tea.Cmd {
@@ -655,7 +703,7 @@ func (m Model) helpText() string {
 	}
 	switch m.tab {
 	case tabTime:
-		return "↑/↓/←/→ move   enter open   e edit   a add   d delete   r refresh   / search   q quit"
+		return "[/] day   t today   ↑/↓/←/→ move   enter open   e edit   a add   d delete   r refresh   / search   q quit"
 	case tabSearch:
 		return "↑/↓/←/→ move   enter open   / search   r refresh   q quit"
 	default:

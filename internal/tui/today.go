@@ -100,7 +100,7 @@ func (m Model) viewToday(height int) string {
 	}
 
 	var b strings.Builder
-	logged := clickup.FormatMillis(totalLogged(entriesOf(m.timesheet)))
+	logged := clickup.FormatMillis(m.loggedToday)
 	start, end := clickup.WeekBounds(m.now)
 	rangeLabel := fmt.Sprintf("%s – %s", start.Format("2 Jan"), end.Add(-time.Nanosecond).Format("2 Jan"))
 	fmt.Fprintf(&b, " %s\n\n", mutedStyle.Render(fmt.Sprintf("%s · %d tasks · %s logged today", rangeLabel, len(tasks), logged)))

@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"clickup-tui/internal/clickup"
 
@@ -20,6 +21,12 @@ func (m *Model) updateTimesheet(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch msg.String() {
+	case "[":
+		return m, m.shiftTimeDay(-1)
+	case "]":
+		return m, m.shiftTimeDay(1)
+	case "t":
+		return m, m.jumpTimeToday()
 	case "up", "k":
 		m.timesheet.moveFlat(-1, h)
 	case "down", "j":
@@ -55,7 +62,7 @@ func (m Model) viewTimesheet(height int) string {
 	entries := entriesOf(m.timesheet)
 	total := clickup.FormatMillis(totalLogged(entries))
 	var b strings.Builder
-	fmt.Fprintf(&b, " %s\n\n", mutedStyle.Render(fmt.Sprintf("%d entries · %s today", len(entries), total)))
+	fmt.Fprintf(&b, " %s\n\n", mutedStyle.Render(fmt.Sprintf("%s · %d entries · %s", timeDayLabel(m.timeDay, m.now), len(entries), total)))
 
 	cols := timeTableCols(max(m.width-2, 40))
 	avail := max(height-2-3, 1)
@@ -67,7 +74,11 @@ func (m Model) viewTimesheet(height int) string {
 		}
 		b.WriteString(renderBoxTable(cols, nil))
 		b.WriteString("\n")
-		b.WriteString(mutedStyle.Render(" No time logged today. Press a to add, or t on a task."))
+		empty := " No time logged on this day. Press a to add, or t on a task."
+		if startOfDay(m.timeDay).Equal(startOfDay(m.now)) {
+			empty = " No time logged today. Press a to add, or t on a task."
+		}
+		b.WriteString(mutedStyle.Render(empty))
 		return b.String()
 	}
 
@@ -102,4 +113,19 @@ func (m Model) viewTimesheet(height int) string {
 	}
 	b.WriteString(renderBoxTable(cols, boxRows))
 	return b.String()
+}
+
+func timeDayLabel(day, now time.Time) string {
+	d := startOfDay(day)
+	n := startOfDay(now)
+	if d.Equal(n) {
+		return "today · " + d.Format("Mon 2 Jan")
+	}
+	if d.Equal(n.AddDate(0, 0, -1)) {
+		return "yesterday · " + d.Format("Mon 2 Jan")
+	}
+	if d.Equal(n.AddDate(0, 0, 1)) {
+		return "tomorrow · " + d.Format("Mon 2 Jan")
+	}
+	return d.Format("Mon 2 Jan")
 }
