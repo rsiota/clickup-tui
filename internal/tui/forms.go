@@ -12,7 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-func (m Model) openCommentForm() (tea.Model, tea.Cmd) {
+func (m *Model) openCommentForm() (tea.Model, tea.Cmd) {
 	m.overlay = overlayComment
 	m.comment.SetValue("")
 	m.syncSizes()
@@ -20,7 +20,7 @@ func (m Model) openCommentForm() (tea.Model, tea.Cmd) {
 	return m, m.comment.Focus()
 }
 
-func (m Model) openTimeForm(taskRef string) (tea.Model, tea.Cmd) {
+func (m *Model) openTimeForm(taskRef string) (tea.Model, tea.Cmd) {
 	m.overlay = overlayTime
 	m.formID = taskRef
 	m.input.SetValue("")
@@ -28,14 +28,14 @@ func (m Model) openTimeForm(taskRef string) (tea.Model, tea.Cmd) {
 	return m, m.input.Focus()
 }
 
-func (m Model) openAddTime() (tea.Model, tea.Cmd) {
+func (m *Model) openAddTime() (tea.Model, tea.Cmd) {
 	m.overlay = overlayAddTime
 	m.input.SetValue("")
 	m.input.Placeholder = "TASK-ID 1h30m"
 	return m, m.input.Focus()
 }
 
-func (m Model) openEditTime(e clickup.TimeEntry) (tea.Model, tea.Cmd) {
+func (m *Model) openEditTime(e clickup.TimeEntry) (tea.Model, tea.Cmd) {
 	m.overlay = overlayEditTime
 	m.formID = e.ID
 	preset := ""
@@ -47,8 +47,8 @@ func (m Model) openEditTime(e clickup.TimeEntry) (tea.Model, tea.Cmd) {
 	return m, m.input.Focus()
 }
 
-func (m Model) updateOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.String() == "esc" {
+func (m *Model) updateOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if keyIsEsc(msg) {
 		m.overlay = overlayNone
 		m.comment.Blur()
 		m.input.Blur()
@@ -84,7 +84,7 @@ func (m Model) updateOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
-	if msg.String() == "enter" {
+	if keyIsEnter(msg) {
 		return m.submitInput()
 	}
 	var cmd tea.Cmd
@@ -92,7 +92,7 @@ func (m Model) updateOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m Model) submitInput() (tea.Model, tea.Cmd) {
+func (m *Model) submitInput() (tea.Model, tea.Cmd) {
 	val := strings.TrimSpace(m.input.Value())
 	if val == "" {
 		m.err = fmt.Errorf("value is empty")

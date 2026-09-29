@@ -119,8 +119,10 @@ type Model struct {
 	detail         *clickup.Task
 	comments       []clickup.Comment
 	taskCache      map[string]clickup.Task
-	detailLoading    bool
-	commentsLoading  bool
+	descriptionLoading bool
+	commentsLoading    bool
+	prefetchQueue      []string
+	prefetchBusy       bool
 	fromTab          tab
 	viewport   viewport.Model
 	vpReady    bool
@@ -136,7 +138,7 @@ type listState struct {
 	offset int
 }
 
-func New(client *clickup.Client, cfg *config.Config) Model {
+func New(client *clickup.Client, cfg *config.Config) *Model {
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 	sp.Style = titleStyle
@@ -151,7 +153,7 @@ func New(client *clickup.Client, cfg *config.Config) Model {
 	ti.CharLimit = 64
 	ti.Width = 40
 
-	return Model{
+	return &Model{
 		client:  client,
 		cfg:     cfg,
 		loading: true,
@@ -162,7 +164,7 @@ func New(client *clickup.Client, cfg *config.Config) Model {
 	}
 }
 
-func (m Model) Init() tea.Cmd {
+func (m *Model) Init() tea.Cmd {
 	return tea.Batch(m.spin.Tick, m.bootstrap())
 }
 
@@ -212,7 +214,7 @@ func pickWorkspace(teams []clickup.Workspace, want string) (clickup.Workspace, e
 	return teams[0], nil
 }
 
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -247,6 +249,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cfg.Workspace = msg.workspace.ID.String()
 			_ = m.cfg.Save()
 		}
+		if msg.err == nil && len(msg.tasks) > 0 {
+			m.rebuildPrefetchQueue(msg.tasks)
+			return m, m.kickPrefetch()
+		}
 		return m, nil
 
 	case todayMsg:
@@ -259,12 +265,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.today.cursor = firstTodayIndex(msg.tasks, m.now)
 			m.today.offset = m.weekEnsureVisible(m.today.cursor, 0)
 			m.status = fmt.Sprintf("Refreshed %d tasks", len(msg.tasks))
+			m.rebuildPrefetchQueue(msg.tasks)
+			return m, m.kickPrefetch()
 		}
 		return m, nil
 
+	case cacheWarmMsg:
+		m.prefetchBusy = false
+		if msg.err == nil && msg.task.ID != "" {
+			m.applyWarmTask(msg.task)
+		}
+		return m, m.continuePrefetch()
+
 	case detailTaskMsg:
-		m.detailLoading = false
+		m.descriptionLoading = false
 		m.loading = false
+		var cmd tea.Cmd
 		if msg.err != nil {
 			m.err = msg.err
 			if m.detail == nil {
@@ -272,12 +288,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		} else if msg.task.ID != "" {
 			t := msg.task
+			normalizeCachedTask(&t)
 			m.detail = &t
 			m.cacheTask(t)
 			m.err = nil
 			m.refreshViewport()
 		}
-		return m, nil
+		if m.detail != nil && m.commentsLoading && msg.err == nil {
+			cmd = m.fetchTaskComments(m.detail.ID)
+		}
+		return m, cmd
 
 	case detailCommentsMsg:
 		m.commentsLoading = false
@@ -286,7 +306,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.err = msg.err
 			} else {
 				m.comments = msg.comments
-				if !m.detailLoading {
+				if !m.descriptionLoading {
 					m.err = nil
 				}
 				m.refreshViewport()
@@ -311,6 +331,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.search.setTasks(msg.tasks)
 			m.cacheTasks(msg.tasks)
 			m.status = fmt.Sprintf("%d matches", len(msg.tasks))
+			m.rebuildPrefetchQueue(msg.tasks)
+			return m, m.kickPrefetch()
 		}
 		return m, nil
 
@@ -324,7 +346,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.comment.Blur()
 			if msg.then != nil {
 				if m.detail != nil {
-					m.detailLoading = true
+					m.descriptionLoading = true
+					m.commentsLoading = true
 				} else {
 					m.loading = true
 				}
@@ -346,7 +369,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) updateTabs(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *Model) updateTabs(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q", "ctrl+c":
 		return m, tea.Quit
@@ -387,7 +410,7 @@ func (m Model) updateTabs(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) refreshCurrent() (tea.Model, tea.Cmd) {
+func (m *Model) refreshCurrent() (tea.Model, tea.Cmd) {
 	if !m.booted {
 		return m, nil
 	}
@@ -433,6 +456,13 @@ func (m Model) loadDetail(id string) tea.Cmd {
 	return tea.Batch(m.fetchTaskDetail(id), m.fetchTaskComments(id))
 }
 
+func (m Model) loadDetailOnOpen(id string, needBody bool) tea.Cmd {
+	if needBody {
+		return m.fetchTaskDetail(id)
+	}
+	return m.fetchTaskComments(id)
+}
+
 func (m Model) fetchTaskDetail(id string) tea.Cmd {
 	ws := m.workspaceID()
 	client := m.client
@@ -443,6 +473,7 @@ func (m Model) fetchTaskDetail(id string) tea.Cmd {
 		if err != nil {
 			return detailTaskMsg{err: err}
 		}
+		normalizeCachedTask(task)
 		return detailTaskMsg{task: *task}
 	}
 }
@@ -461,22 +492,25 @@ func (m Model) fetchTaskComments(id string) tea.Cmd {
 	}
 }
 
-func (m Model) openTask(id string) (tea.Model, tea.Cmd) {
+func (m *Model) openTask(id string) tea.Cmd {
 	m.fromTab = m.tab
 	m.err = nil
-	m.detailLoading = true
 	m.commentsLoading = true
 	m.comments = nil
+	m.cancelPrefetch(id)
 
+	needBody := true
 	if t, ok := m.lookupTask(id); ok {
 		cached := t
 		m.detail = &cached
+		needBody = !taskHasBody(cached)
 	} else {
 		stub := clickup.Task{ID: id, Name: "…"}
 		m.detail = &stub
 	}
+	m.descriptionLoading = needBody
 	m.refreshViewport()
-	return m, m.loadDetail(id)
+	return m.loadDetailOnOpen(id, needBody)
 }
 
 func (m *Model) syncSizes() {
@@ -488,7 +522,17 @@ func (m *Model) syncSizes() {
 	}
 }
 
-func (m Model) View() string {
+func (m *Model) contentBodyHeight() int {
+	header := m.viewHeader()
+	footer := m.viewFooter()
+	used := lipgloss.Height(header) + 1 + lipgloss.Height(footer)
+	if m.overlay != overlayNone {
+		used += lipgloss.Height(m.viewOverlay()) + 1
+	}
+	return max(m.height-used, 1)
+}
+
+func (m *Model) View() string {
 	if m.width == 0 {
 		return " " + m.spin.View() + " loading"
 	}
@@ -502,12 +546,7 @@ func (m Model) View() string {
 	if m.overlay != overlayNone {
 		overlay = m.viewOverlay()
 	}
-	// header + blank spacer before body + footer (+ overlay)
-	used := lipgloss.Height(header) + 1 + lipgloss.Height(footer)
-	if overlay != "" {
-		used += lipgloss.Height(overlay) + 1
-	}
-	bodyH := max(m.height-used, 1)
+	bodyH := m.contentBodyHeight()
 
 	var body string
 	switch {
@@ -578,8 +617,8 @@ func (m Model) viewFooter() string {
 
 	var status string
 	switch {
-	case m.detailLoading:
-		status = m.spin.View() + " loading task"
+	case m.descriptionLoading:
+		status = m.spin.View() + " loading description"
 	case m.commentsLoading:
 		status = m.spin.View() + " loading comments"
 	case m.loading:
@@ -623,7 +662,7 @@ func (m Model) helpText() string {
 func (m *listState) setTasks(tasks []clickup.Task) {
 	m.items = make([]any, len(tasks))
 	for i := range tasks {
-		m.items[i] = tasks[i]
+		m.items[i] = stripListTask(tasks[i])
 	}
 	m.cursor = clamp(m.cursor, 0, max(len(m.items)-1, 0))
 }

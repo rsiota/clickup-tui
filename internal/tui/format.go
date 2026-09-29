@@ -9,9 +9,9 @@ import (
 
 	"clickup-tui/internal/clickup"
 
-	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/reflow/truncate"
+	"github.com/muesli/reflow/wordwrap"
 )
 
 var htmlTag = regexp.MustCompile(`(?s)<[^>]*>`)
@@ -55,24 +55,15 @@ func locationLine(t clickup.Task) string {
 }
 
 func renderBody(text string, width int) string {
-	text = sanitizeTaskContent(text)
+	text = strings.TrimSpace(text)
 	if text == "" {
 		return mutedStyle.Render("(no description)")
 	}
 	if width < 20 {
 		width = 20
 	}
-	r, err := glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
-		glamour.WithWordWrap(width),
-	)
-	if err == nil {
-		out, err := r.Render(text)
-		if err == nil {
-			return strings.TrimSpace(out)
-		}
-	}
-	return text
+	// Plain wrap only — Glamour was blocking the UI for seconds on large bodies.
+	return wordwrap.String(text, width)
 }
 
 func looksLikeHTML(s string) bool {

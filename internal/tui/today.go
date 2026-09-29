@@ -10,20 +10,24 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func (m Model) updateToday(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *Model) updateToday(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if keyIsEnter(msg) {
+		if t, ok := m.today.task(); ok {
+			return m, m.openTask(t.ID)
+		}
+		return m, nil
+	}
 	switch msg.String() {
 	case "up", "k":
-		m = m.moveWeek(-1)
+		m.moveWeek(-1)
+		return m.afterWeekNav()
 	case "down", "j":
-		m = m.moveWeek(1)
+		m.moveWeek(1)
+		return m.afterWeekNav()
 	case "g":
-		m = m.moveWeekToEdge(false)
+		m.moveWeekToEdge(false)
 	case "G":
-		m = m.moveWeekToEdge(true)
-	case "enter":
-		if t, ok := m.today.task(); ok {
-			return m.openTask(t.ID)
-		}
+		m.moveWeekToEdge(true)
 	case "t":
 		if t, ok := m.today.task(); ok {
 			return m.openTimeForm(t.Ref())
@@ -34,10 +38,10 @@ func (m Model) updateToday(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // moveWeek steps to the previous/next task in visual order (top → bottom),
 // so j always goes down the screen and into the next day.
-func (m Model) moveWeek(delta int) Model {
+func (m *Model) moveWeek(delta int) {
 	rows := m.weekRows(tasksOf(m.today))
 	if len(rows) == 0 {
-		return m
+		return
 	}
 	sel := rowIndexForCursor(rows, m.today.cursor)
 	if sel < 0 {
@@ -49,7 +53,7 @@ func (m Model) moveWeek(delta int) Model {
 			}
 		}
 		m.today.offset = m.weekEnsureVisible(m.today.cursor, m.today.offset)
-		return m
+		return
 	}
 
 	if delta > 0 {
@@ -68,10 +72,9 @@ func (m Model) moveWeek(delta int) Model {
 		}
 	}
 	m.today.offset = m.weekEnsureVisible(m.today.cursor, m.today.offset)
-	return m
 }
 
-func (m Model) moveWeekToEdge(bottom bool) Model {
+func (m *Model) moveWeekToEdge(bottom bool) {
 	rows := m.weekRows(tasksOf(m.today))
 	var pick int = -1
 	if bottom {
@@ -93,7 +96,6 @@ func (m Model) moveWeekToEdge(bottom bool) Model {
 		m.today.cursor = pick
 	}
 	m.today.offset = m.weekEnsureVisible(m.today.cursor, 0)
-	return m
 }
 
 func (m Model) weekListHeight() int {
@@ -281,6 +283,13 @@ func firstTodayIndex(tasks []clickup.Task, now time.Time) int {
 		}
 	}
 	return 0
+}
+
+func (m *Model) afterWeekNav() (tea.Model, tea.Cmd) {
+	if t, ok := m.today.task(); ok {
+		m.bumpPrefetch(t.ID)
+	}
+	return m, m.kickPrefetch()
 }
 
 func tasksOf(s listState) []clickup.Task {

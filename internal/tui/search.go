@@ -9,7 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func (m Model) openSearch() (tea.Model, tea.Cmd) {
+func (m *Model) openSearch() (tea.Model, tea.Cmd) {
 	m.tab = tabSearch
 	m.overlay = overlaySearch
 	m.input.SetValue(m.searchQ)
@@ -17,17 +17,19 @@ func (m Model) openSearch() (tea.Model, tea.Cmd) {
 	return m, m.input.Focus()
 }
 
-func (m Model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *Model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	h := max(m.height-6, 3)
+	if keyIsEnter(msg) {
+		if t, ok := m.search.task(); ok {
+			return m, m.openTask(t.ID)
+		}
+		return m, nil
+	}
 	switch msg.String() {
 	case "up", "k":
 		m.search.moveFlat(-1, h)
 	case "down", "j":
 		m.search.moveFlat(1, h)
-	case "enter":
-		if t, ok := m.search.task(); ok {
-			return m.openTask(t.ID)
-		}
 	case "t":
 		if t, ok := m.search.task(); ok {
 			return m.openTimeForm(t.Ref())

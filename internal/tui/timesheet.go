@@ -9,8 +9,14 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func (m Model) updateTimesheet(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *Model) updateTimesheet(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	h := max(m.height-6, 3)
+	if keyIsEnter(msg) {
+		if e, ok := m.timesheet.entry(); ok && e.Task.ID != "" {
+			return m, m.openTask(e.Task.ID)
+		}
+		return m, nil
+	}
 	switch msg.String() {
 	case "up", "k":
 		m.timesheet.moveFlat(-1, h)
@@ -24,10 +30,6 @@ func (m Model) updateTimesheet(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.timesheet.cursor = n - 1
 		}
 		m.timesheet.offset = ensureVisible(m.timesheet.cursor, m.timesheet.offset, h)
-	case "enter":
-		if e, ok := m.timesheet.entry(); ok && e.Task.ID != "" {
-			return m.openTask(e.Task.ID)
-		}
 	case "e":
 		if e, ok := m.timesheet.entry(); ok {
 			return m.openEditTime(e)

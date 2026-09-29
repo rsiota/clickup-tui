@@ -2,10 +2,18 @@ package tui
 
 import "clickup-tui/internal/clickup"
 
+// stripListTask drops description payloads from list/search responses so opening
+// a task never word-wraps megabytes of HTML on the UI thread.
+func stripListTask(t clickup.Task) clickup.Task {
+	t.Description = ""
+	t.MarkdownDescription = ""
+	return t
+}
+
 func (m *Model) rebuildTaskCache(tasks []clickup.Task) {
 	m.taskCache = make(map[string]clickup.Task, len(tasks))
 	for _, t := range tasks {
-		m.taskCache[t.ID] = t
+		m.taskCache[t.ID] = stripListTask(t)
 	}
 }
 
@@ -15,7 +23,7 @@ func (m *Model) cacheTasks(tasks []clickup.Task) {
 		return
 	}
 	for _, t := range tasks {
-		m.taskCache[t.ID] = t
+		m.taskCache[t.ID] = stripListTask(t)
 	}
 }
 

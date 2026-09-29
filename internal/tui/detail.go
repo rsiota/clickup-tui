@@ -11,25 +11,37 @@ import (
 	"github.com/muesli/reflow/wordwrap"
 )
 
-func (m Model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *Model) closeDetail() {
+	m.detail = nil
+	m.comments = nil
+	m.vpReady = false
+	m.descriptionLoading = false
+	m.commentsLoading = false
+	m.tab = m.fromTab
+	m.status = ""
+	m.err = nil
+	m.input.Blur()
+	m.comment.Blur()
+	m.overlay = overlayNone
+}
+
+func (m *Model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if keyIsEsc(msg) {
+		m.closeDetail()
+		return m, nil
+	}
 	switch msg.String() {
 	case "q", "ctrl+c":
 		return m, tea.Quit
-	case "esc", "backspace":
-		m.detail = nil
-		m.comments = nil
-		m.detailLoading = false
-		m.commentsLoading = false
-		m.tab = m.fromTab
-		m.status = ""
-		m.err = nil
+	case "backspace":
+		m.closeDetail()
 		return m, nil
 	case "c":
 		return m.openCommentForm()
 	case "t":
 		return m.openTimeForm(m.detail.Ref())
 	case "r":
-		m.detailLoading = true
+		m.descriptionLoading = true
 		m.commentsLoading = true
 		return m, m.loadDetail(m.detail.ID)
 	}
@@ -43,11 +55,16 @@ func (m *Model) refreshViewport() {
 	if m.detail == nil {
 		return
 	}
-	w := max(m.width-2, 20)
-	h := max(m.height-6, 5)
-	if m.overlay != overlayNone {
-		h = max(h-8, 3)
+	m.syncDetailViewport(max(m.contentBodyHeight(), 3))
+}
+
+func (m *Model) syncDetailViewport(height int) {
+	if m.detail == nil {
+		return
 	}
+	w := max(m.width-2, 20)
+	h := max(height, 3)
+	yOff := m.viewport.YOffset
 	content := m.detailContent(w)
 	if !m.vpReady {
 		m.viewport = viewport.New(w, h)
@@ -56,14 +73,18 @@ func (m *Model) refreshViewport() {
 	m.viewport.Width = w
 	m.viewport.Height = h
 	m.viewport.SetContent(content)
+	if yOff > 0 {
+		m.viewport.SetYOffset(yOff)
+	}
 }
 
-func (m Model) viewDetail(height int) string {
+func (m *Model) viewDetail(height int) string {
 	if m.detail == nil {
 		return ""
 	}
-	m.viewport.Height = max(height, 3)
-	m.viewport.Width = max(m.width-2, 20)
+	// Always sync on paint so the first Enter shows content without needing
+	// a second keypress to force a redraw.
+	m.syncDetailViewport(height)
 	return m.viewport.View()
 }
 
@@ -88,7 +109,7 @@ func (m Model) detailContent(width int) string {
 
 	if body := strings.TrimSpace(t.PlainBody()); body != "" {
 		b.WriteString(renderBody(body, width))
-	} else if m.detailLoading {
+	} else if m.descriptionLoading {
 		b.WriteString(mutedStyle.Render("(loading description…)\n"))
 	} else {
 		b.WriteString(mutedStyle.Render("(no description)"))

@@ -18,26 +18,26 @@ func TestMoveWeekFollowsVisualOrder(t *testing.T) {
 		{ID: "mon", Name: "Monday", DueDate: clickup.FlexInt64(weekStart.UnixMilli())},
 	}
 
-	m := Model{now: now}
+	m := &Model{now: now}
 	m.today.setTasks(tasks)
 	// Start on Monday (visual first), even though it is last in items.
 	m.today.cursor = 2
 
-	m = m.moveWeek(1)
+	m.moveWeek(1)
 	if got := mustTaskID(m); got != "wed" {
 		t.Fatalf("j from Monday → %s, want wed", got)
 	}
-	m = m.moveWeek(1)
+	m.moveWeek(1)
 	if got := mustTaskID(m); got != "sun" {
 		t.Fatalf("j from Wednesday → %s, want sun", got)
 	}
-	m = m.moveWeek(-1)
+	m.moveWeek(-1)
 	if got := mustTaskID(m); got != "wed" {
 		t.Fatalf("k from Sunday → %s, want wed", got)
 	}
 }
 
-func mustTaskID(m Model) string {
+func mustTaskID(m *Model) string {
 	t, ok := m.today.task()
 	if !ok {
 		return ""
