@@ -61,7 +61,7 @@ func (m *Model) updateTimesheet(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.timesheet.cursor = n - 1
 		}
 		m.timesheet.offset = ensureVisible(m.timesheet.cursor, m.timesheet.offset, h)
-	case "e":
+	case "i":
 		if e, ok := m.timesheet.entry(); ok {
 			col := m.timesheet.col
 			if col >= timeColTask {
@@ -112,6 +112,7 @@ func (m *Model) beginCellEdit(e clickup.TimeEntry, col int) (tea.Model, tea.Cmd)
 	m.input.Prompt = ""
 	m.input.SetValue(preset)
 	m.input.CursorEnd()
+	m.syncCellEditWidth()
 	return m, m.input.Focus()
 }
 
@@ -133,6 +134,7 @@ func (m *Model) updateCellEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if keyIsEnter(msg) {
 		return m.commitCellEdit()
 	}
+	m.syncCellEditWidth()
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 	return m, cmd
@@ -204,7 +206,7 @@ func (m Model) patchTimeEntry(entryID string, upd clickup.TimeEntryUpdate, statu
 	}
 }
 
-func (m Model) viewTimesheet(height int) string {
+func (m *Model) viewTimesheet(height int) string {
 	entries := entriesOf(m.timesheet)
 	total := clickup.FormatMillis(totalLogged(entries))
 	var b strings.Builder
@@ -255,8 +257,7 @@ func (m Model) viewTimesheet(height int) string {
 		taskCell := plainCell(name, cols[timeColTask].Width)
 		editing := m.cellEdit && i == m.timesheet.cursor
 		if editing {
-			// Leave one column for the cursor so padVisible doesn't ellipsize.
-			m.input.Width = max(cols[m.timesheet.col].Width-1, 1)
+			m.syncCellEditWidth()
 			ed := padVisible(m.input.View(), cols[m.timesheet.col].Width)
 			switch m.timesheet.col {
 			case timeColStart:

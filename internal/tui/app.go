@@ -25,6 +25,10 @@ const (
 	tabSearch
 )
 
+// searchEnabled temporarily hides the Search tab and "/" shortcut.
+// Set to true to restore.
+const searchEnabled = false
+
 func (t tab) title() string {
 	switch t {
 	case tabToday:
@@ -451,20 +455,26 @@ func (m *Model) updateTabs(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.status = ""
 		return m, nil
 	case "3":
+		if !searchEnabled {
+			return m, nil
+		}
 		m.tab = tabSearch
 		m.status = ""
 		return m, nil
 	case "tab":
-		m.tab = (m.tab + 1) % 3
+		m.tab = m.nextTab(1)
 		m.status = ""
 		return m, nil
 	case "shift+tab":
-		m.tab = (m.tab + 2) % 3
+		m.tab = m.nextTab(-1)
 		m.status = ""
 		return m, nil
 	case "r":
 		return m.refreshCurrent()
 	case "/":
+		if !searchEnabled {
+			return m, nil
+		}
 		return m.openSearch()
 	}
 
@@ -477,6 +487,22 @@ func (m *Model) updateTabs(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateSearch(msg)
 	}
 	return m, nil
+}
+
+func (m Model) nextTab(delta int) tab {
+	tabs := []tab{tabToday, tabTime}
+	if searchEnabled {
+		tabs = append(tabs, tabSearch)
+	}
+	idx := 0
+	for i, t := range tabs {
+		if t == m.tab {
+			idx = i
+			break
+		}
+	}
+	n := len(tabs)
+	return tabs[(idx+delta%n+n)%n]
 }
 
 func (m *Model) refreshCurrent() (tea.Model, tea.Cmd) {
@@ -619,10 +645,29 @@ func (m *Model) openTask(id string) tea.Cmd {
 func (m *Model) syncSizes() {
 	w := max(m.width-2, 20)
 	m.comment.SetWidth(w)
-	m.input.Width = min(40, w)
+	if m.cellEdit {
+		m.syncCellEditWidth()
+	} else {
+		m.input.Width = min(40, w)
+	}
 	if m.detail != nil {
 		m.refreshViewport()
 	}
+}
+
+// syncCellEditWidth sizes the shared text input to the focused timesheet column
+// so long notes don't start horizontal-scrolling before the cell is full.
+func (m *Model) syncCellEditWidth() {
+	if !m.cellEdit {
+		return
+	}
+	cols := timeTableCols(max(m.width-2, 40))
+	col := m.timesheet.col
+	if col < 0 || col >= len(cols) {
+		return
+	}
+	// Reserve one cell for the cursor glyph inside the column.
+	m.input.Width = max(cols[col].Width-1, 1)
 }
 
 func (m *Model) contentBodyHeight() int {
@@ -678,7 +723,7 @@ func padHeight(s string, height int) string {
 	return s + strings.Repeat("\n", height-h)
 }
 
-func (m Model) viewCurrentList(height int) string {
+func (m *Model) viewCurrentList(height int) string {
 	switch m.tab {
 	case tabTime:
 		return m.viewTimesheet(height)
@@ -693,7 +738,9 @@ func (m Model) viewHeader() string {
 	tabs := []string{
 		m.tabLabel(tabToday, "1 WEEK"),
 		m.tabLabel(tabTime, "2 TIME"),
-		m.tabLabel(tabSearch, "3 SEARCH"),
+	}
+	if searchEnabled {
+		tabs = append(tabs, m.tabLabel(tabSearch, "3 SEARCH"))
 	}
 	left := strings.Join(tabs, "  ")
 	rightParts := []string{}
@@ -759,11 +806,19 @@ func (m Model) helpText() string {
 	}
 	switch m.tab {
 	case tabTime:
-		return "[/] day   t today   ↑/↓/←/→ move   enter edit/open   e edit   a add   d delete   r refresh   / search   q quit"
+		help := "[/] day   t today   ↑/↓/←/→ move   enter edit/open   i edit   a add   d delete   r refresh   q quit"
+		if searchEnabled {
+			help = "[/] day   t today   ↑/↓/←/→ move   enter edit/open   i edit   a add   d delete   r refresh   / search   q quit"
+		}
+		return help
 	case tabSearch:
 		return "↑/↓/←/→ move   enter open   s status   t log time   / search   r refresh   q quit"
 	default:
-		return "↑/↓/←/→ move   enter open   s status   t log time   r refresh   / search   q quit"
+		help := "↑/↓/←/→ move   enter open   s status   t log time   r refresh   q quit"
+		if searchEnabled {
+			help = "↑/↓/←/→ move   enter open   s status   t log time   r refresh   / search   q quit"
+		}
+		return help
 	}
 }
 
