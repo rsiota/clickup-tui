@@ -22,6 +22,15 @@ const (
 func (m *Model) updateTimesheet(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	h := max(m.height-6, 3)
 	m.timesheet.clampCol(timeColCount)
+
+	if m.pendingYankY {
+		m.pendingYankY = false
+		if msg.String() == "y" {
+			return m.yankTimeRow()
+		}
+		// Not yy — fall through and handle the key normally.
+	}
+
 	if keyIsEnter(msg) {
 		if e, ok := m.timesheet.entry(); ok {
 			switch m.timesheet.col {
@@ -69,6 +78,11 @@ func (m *Model) updateTimesheet(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m.beginCellEdit(e, col)
 		}
+	case "y":
+		m.pendingYankY = true
+		return m, nil
+	case "p":
+		return m.pasteTimeRow()
 	case "a":
 		return m.openAddTime()
 	case "d":
@@ -78,6 +92,82 @@ func (m *Model) updateTimesheet(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func (m *Model) yankTimeRow() (tea.Model, tea.Cmd) {
+	e, ok := m.timesheet.entry()
+	if !ok {
+		m.err = fmt.Errorf("nothing to yank")
+		return m, nil
+	}
+	if e.Task.ID == "" {
+		m.err = fmt.Errorf("entry has no task")
+		return m, nil
+	}
+	ms := e.Duration.Int64()
+	if ms <= 0 {
+		m.err = fmt.Errorf("can't yank a running or empty entry")
+		return m, nil
+	}
+	y := &yankedTime{
+		taskID:   e.Task.ID,
+		taskName: e.Task.Name,
+		duration: time.Duration(ms) * time.Millisecond,
+		note:     strings.TrimSpace(e.Description),
+	}
+	if ts := e.StartTime(); !ts.IsZero() {
+		local := ts.Local()
+		y.hasStart = true
+		y.hour = local.Hour()
+		y.minute = local.Minute()
+	}
+	m.yankedTime = y
+	m.err = nil
+	label := y.taskName
+	if label == "" {
+		label = y.taskID
+	}
+	m.status = fmt.Sprintf("Yanked %s · %s", clickup.FormatDuration(y.duration), label)
+	return m, nil
+}
+
+func (m *Model) pasteTimeRow() (tea.Model, tea.Cmd) {
+	y := m.yankedTime
+	if y == nil {
+		m.err = fmt.Errorf("nothing yanked — press yy first")
+		return m, nil
+	}
+	day := m.timeDay
+	if day.IsZero() {
+		day = startOfDay(m.now)
+	}
+	var start time.Time
+	if y.hasStart {
+		start = time.Date(day.Year(), day.Month(), day.Day(), y.hour, y.minute, 0, 0, day.Location())
+	}
+	m.loading = true
+	m.err = nil
+	return m, m.createYankedTimeEntry(*y, start)
+}
+
+func (m Model) createYankedTimeEntry(y yankedTime, start time.Time) tea.Cmd {
+	ws := m.workspaceID()
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		if _, err := m.client.CreateTimeEntry(ctx, ws, y.taskID, y.duration, start, y.note); err != nil {
+			return doneMsg{err: err}
+		}
+		label := y.taskName
+		if label == "" {
+			label = y.taskID
+		}
+		status := fmt.Sprintf("Pasted %s · %s", clickup.FormatDuration(y.duration), label)
+		if !start.IsZero() {
+			status += " at " + start.Format("15:04")
+		}
+		return doneMsg{status: status, then: m.loadTimesheet()}
+	}
 }
 
 func (m *Model) beginCellEdit(e clickup.TimeEntry, col int) (tea.Model, tea.Cmd) {
@@ -208,25 +298,28 @@ func (m Model) patchTimeEntry(entryID string, upd clickup.TimeEntryUpdate, statu
 
 func (m *Model) viewTimesheet(height int) string {
 	entries := entriesOf(m.timesheet)
-	total := clickup.FormatMillis(totalLogged(entries))
-	var b strings.Builder
-	fmt.Fprintf(&b, " %s\n\n", mutedStyle.Render(fmt.Sprintf("%s · %d entries · %s", timeDayLabel(m.timeDay, m.now), len(entries), total)))
-
+	tabs, active := m.listTabLabels()
+	meta := m.headerMeta()
 	cols := timeTableCols(max(m.width-2, 40))
-	avail := max(height-2-3, 1)
+	// Tab chrome (3) + table header/sep/bottom (3) + summary (1).
+	avail := max(height-3-3-1, 1)
+	summary := mutedStyle.Render(fmt.Sprintf("%s · %d entries · %s", timeDayLabel(m.timeDay, m.now), len(entries), clickup.FormatMillis(totalLogged(entries))))
 
+	var b strings.Builder
 	if len(entries) == 0 {
+		b.WriteString(renderBoxTableChrome(cols, nil, tabs, active, meta))
+		b.WriteByte('\n')
 		if m.loading {
 			b.WriteString(" " + m.spin.View() + " loading timesheet…")
-			return b.String()
+		} else {
+			empty := " No time logged on this day. Press a to add, or t on a task."
+			if startOfDay(m.timeDay).Equal(startOfDay(m.now)) {
+				empty = " No time logged today. Press a to add, or t on a task."
+			}
+			b.WriteString(mutedStyle.Render(empty))
 		}
-		b.WriteString(renderBoxTable(cols, nil))
-		b.WriteString("\n")
-		empty := " No time logged on this day. Press a to add, or t on a task."
-		if startOfDay(m.timeDay).Equal(startOfDay(m.now)) {
-			empty = " No time logged today. Press a to add, or t on a task."
-		}
-		b.WriteString(mutedStyle.Render(empty))
+		b.WriteByte('\n')
+		b.WriteString(" " + summary)
 		return b.String()
 	}
 
@@ -281,7 +374,9 @@ func (m *Model) viewTimesheet(height int) string {
 			Editing:  editing,
 		})
 	}
-	b.WriteString(renderBoxTable(cols, boxRows))
+	b.WriteString(renderBoxTableChrome(cols, boxRows, tabs, active, meta))
+	b.WriteByte('\n')
+	b.WriteString(" " + summary)
 	return b.String()
 }
 

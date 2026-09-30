@@ -91,8 +91,8 @@ func (m Model) weekSelRow(rows []listRow) int {
 }
 
 func (m Model) weekListHeight() int {
-	// header + footer (+ optional status line) + week summary line
-	return max(m.height-6, 3)
+	// tab chrome + table frame + summary + footer
+	return max(m.height-8, 3)
 }
 
 func (m Model) weekEnsureVisible(offset int) int {
@@ -102,24 +102,36 @@ func (m Model) weekEnsureVisible(offset int) int {
 
 func (m Model) viewToday(height int) string {
 	tasks := tasksOf(m.today)
+	tabs, active := m.listTabLabels()
+	meta := m.headerMeta()
+
 	if m.loading && len(tasks) == 0 {
-		return " " + m.spin.View() + " loading this week’s tasks…"
+		var b strings.Builder
+		// Keep tab chrome visible while loading.
+		cols := weekTableCols(max(m.width-2, 40), 6)
+		b.WriteString(renderBoxTableChrome(cols, nil, tabs, active, meta))
+		b.WriteString("\n")
+		b.WriteString(" " + m.spin.View() + " loading this week’s tasks…")
+		return b.String()
 	}
 
-	var b strings.Builder
 	logged := clickup.FormatMillis(m.loggedToday)
 	start, end := clickup.WeekBounds(m.now)
 	rangeLabel := fmt.Sprintf("%s – %s", start.Format("2 Jan"), end.Add(-time.Nanosecond).Format("2 Jan"))
-	fmt.Fprintf(&b, " %s\n\n", mutedStyle.Render(fmt.Sprintf("%s · %d tasks · %s logged today", rangeLabel, len(tasks), logged)))
+	summary := mutedStyle.Render(fmt.Sprintf("%s · %d tasks · %s logged today", rangeLabel, len(tasks), logged))
 
 	statusW := weekStatusColumnWidth(tasks)
 	cols := weekTableCols(max(m.width-2, 40), statusW)
-	// Header + separator + bottom border consume 3 lines inside the box.
-	avail := max(height-2-3, 1)
+	// Tab chrome (3) + table header/sep/bottom (3) + summary (1).
+	avail := max(height-3-3-1, 1)
 	rows := m.weekRows(tasks)
 	sel := m.weekSelRow(rows)
 	offset := ensureVisible(sel, m.today.offset, avail)
-	b.WriteString(renderWeekBox(rows, sel, m.today.col, offset, avail, cols))
+
+	var b strings.Builder
+	b.WriteString(renderWeekBox(rows, sel, m.today.col, offset, avail, cols, tabs, active, meta))
+	b.WriteByte('\n')
+	b.WriteString(" " + summary)
 	return b.String()
 }
 
@@ -214,7 +226,7 @@ func ensureVisible(sel, offset, height int) int {
 	return offset
 }
 
-func renderWeekBox(rows []listRow, cursor, col, offset, height int, cols []tableCol) string {
+func renderWeekBox(rows []listRow, cursor, col, offset, height int, cols []tableCol, tabLabels []string, activeTab int, meta string) string {
 	if height < 1 {
 		height = 1
 	}
@@ -255,7 +267,7 @@ func renderWeekBox(rows []listRow, cursor, col, offset, height int, cols []table
 			FocusCol: col,
 		})
 	}
-	return renderBoxTable(cols, boxRows)
+	return renderBoxTableChrome(cols, boxRows, tabLabels, activeTab, meta)
 }
 
 func renderTaskBox(rows []listRow, cursor, col, offset, height int, cols []tableCol) string {

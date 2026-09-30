@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -43,7 +44,7 @@ func (c *Client) DayEntries(ctx context.Context, workspace string, day time.Time
 
 // CreateTimeEntry logs duration on taskID. If start is zero, the entry ends now
 // (start = now − duration). Otherwise start is used as the entry start time.
-func (c *Client) CreateTimeEntry(ctx context.Context, workspace, taskID string, duration time.Duration, start time.Time) (*TimeEntry, error) {
+func (c *Client) CreateTimeEntry(ctx context.Context, workspace, taskID string, duration time.Duration, start time.Time, description string) (*TimeEntry, error) {
 	if duration <= 0 {
 		return nil, fmt.Errorf("duration must be positive")
 	}
@@ -58,9 +59,10 @@ func (c *Client) CreateTimeEntry(ctx context.Context, workspace, taskID string, 
 		path += "?" + q.Encode()
 	}
 	req := CreateTimeEntryRequest{
-		Start:    start.UnixMilli(),
-		Duration: duration.Milliseconds(),
-		Tid:      taskID,
+		Description: strings.TrimSpace(description),
+		Start:       start.UnixMilli(),
+		Duration:    duration.Milliseconds(),
+		Tid:         taskID,
 	}
 	var raw json.RawMessage
 	if err := c.do(ctx, http.MethodPost, path, req, &raw); err != nil {

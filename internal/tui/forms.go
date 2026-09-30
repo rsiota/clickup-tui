@@ -203,7 +203,7 @@ func (m Model) logTime(taskRef string, log clickup.TimeLog) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		if _, err := m.client.CreateTimeEntry(ctx, ws, taskRef, log.Duration, log.Start); err != nil {
+		if _, err := m.client.CreateTimeEntry(ctx, ws, taskRef, log.Duration, log.Start, ""); err != nil {
 			return doneMsg{err: err}
 		}
 		var then tea.Cmd

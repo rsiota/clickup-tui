@@ -139,12 +139,26 @@ type Model struct {
 	formID  string
 	cellEdit bool // inline timesheet cell edit (START / DURATION)
 
+	pendingYankY bool          // waiting for second y in yy
+	yankedTime   *yankedTime   // timesheet row clipboard
+
 	statusCache   map[string][]clickup.ListStatus
 	statusChoices []clickup.ListStatus
 	statusCursor  int
 	statusTaskID  string
 	statusListID  string
 	statusCurrent string
+}
+
+// yankedTime is a timesheet row snapshot for yy / p.
+type yankedTime struct {
+	taskID   string
+	taskName string
+	duration time.Duration
+	note     string
+	hour     int
+	minute   int
+	hasStart bool
 }
 
 type listState struct {
@@ -673,7 +687,10 @@ func (m *Model) syncCellEditWidth() {
 func (m *Model) contentBodyHeight() int {
 	header := m.viewHeader()
 	footer := m.viewFooter()
-	used := lipgloss.Height(header) + 1 + lipgloss.Height(footer)
+	used := lipgloss.Height(footer)
+	if header != "" {
+		used += lipgloss.Height(header) + 1
+	}
 	if m.overlay != overlayNone {
 		used += lipgloss.Height(m.viewOverlay()) + 1
 	}
@@ -707,7 +724,11 @@ func (m *Model) View() string {
 	}
 	body = padHeight(body, bodyH)
 
-	parts := []string{header, "", body}
+	parts := []string{}
+	if header != "" {
+		parts = append(parts, header, "")
+	}
+	parts = append(parts, body)
 	if overlay != "" {
 		parts = append(parts, overlay)
 	}
@@ -734,32 +755,45 @@ func (m *Model) viewCurrentList(height int) string {
 	}
 }
 
-func (m Model) viewHeader() string {
-	tabs := []string{
-		m.tabLabel(tabToday, "1 WEEK"),
-		m.tabLabel(tabTime, "2 TIME"),
+func (m Model) listTabLabels() ([]string, int) {
+	labels := []string{"WEEK", "TIME"}
+	active := 0
+	switch m.tab {
+	case tabTime:
+		active = 1
+	case tabSearch:
+		if searchEnabled {
+			labels = append(labels, "SEARCH")
+			active = 2
+		}
 	}
-	if searchEnabled {
-		tabs = append(tabs, m.tabLabel(tabSearch, "3 SEARCH"))
+	if searchEnabled && m.tab != tabSearch {
+		labels = append(labels, "SEARCH")
 	}
-	left := strings.Join(tabs, "  ")
-	rightParts := []string{}
-	if m.workspace.Name != "" {
-		rightParts = append(rightParts, m.workspace.Name)
-	}
-	if !m.now.IsZero() {
-		rightParts = append(rightParts, m.now.Format("Mon 2 Jan"))
-	}
-	right := mutedStyle.Render(strings.Join(rightParts, " · "))
-	gap := max(m.width-lipgloss.Width(left)-lipgloss.Width(right)-1, 1)
-	return left + strings.Repeat(" ", gap) + right
+	return labels, active
 }
 
-func (m Model) tabLabel(t tab, label string) string {
-	if m.tab == t && m.detail == nil {
-		return tabActive.Render(label)
+func (m Model) headerMeta() string {
+	parts := []string{}
+	if m.workspace.Name != "" {
+		parts = append(parts, m.workspace.Name)
 	}
-	return tabIdle.Render(label)
+	if !m.now.IsZero() {
+		parts = append(parts, m.now.Format("Mon 2 Jan"))
+	}
+	return strings.Join(parts, " · ")
+}
+
+func (m Model) viewHeader() string {
+	// List tabs are drawn attached to the table; only show a meta bar in detail.
+	if m.detail == nil {
+		return ""
+	}
+	meta := m.headerMeta()
+	if meta == "" {
+		return ""
+	}
+	return mutedStyle.Render(meta)
 }
 
 func (m Model) viewFooter() string {
@@ -806,9 +840,9 @@ func (m Model) helpText() string {
 	}
 	switch m.tab {
 	case tabTime:
-		help := "[/] day   t today   ↑/↓/←/→ move   enter edit/open   i edit   a add   d delete   r refresh   q quit"
+		help := "[/] day   t today   ↑/↓/←/→ move   enter edit/open   i edit   yy yank   p paste   a add   d delete   r refresh   q quit"
 		if searchEnabled {
-			help = "[/] day   t today   ↑/↓/←/→ move   enter edit/open   i edit   a add   d delete   r refresh   / search   q quit"
+			help = "[/] day   t today   ↑/↓/←/→ move   enter edit/open   i edit   yy yank   p paste   a add   d delete   r refresh   / search   q quit"
 		}
 		return help
 	case tabSearch:

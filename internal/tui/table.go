@@ -123,9 +123,27 @@ func plainCell(s string, width int) string {
 	return padRight(truncateRunes(visibleName(s), width), width)
 }
 
+func tableInnerWidth(cols []tableCol) int {
+	total := 0
+	for _, c := range cols {
+		total += c.Width + 3
+	}
+	return total
+}
+
+func tableOuterWidth(cols []tableCol) int {
+	return tableInnerWidth(cols) + 1
+}
+
 // renderBoxTable draws a creel results-panel style grid: a solid dark outer
-// frame (no ┬/┴ into the perimeter) with muted inner column/header dividers.
+// frame (no tab junctions into the perimeter) with muted inner column/header dividers.
 func renderBoxTable(cols []tableCol, rows []boxRow) string {
+	return renderBoxTableChrome(cols, rows, nil, -1, "")
+}
+
+// renderBoxTableChrome draws the table with optional folder-style tabs whose
+// active tab opens into the table top border (card-switching chrome).
+func renderBoxTableChrome(cols []tableCol, rows []boxRow, tabLabels []string, activeTab int, meta string) string {
 	if len(cols) == 0 {
 		return ""
 	}
@@ -133,16 +151,16 @@ func renderBoxTable(cols []tableCol, rows []boxRow) string {
 	outer := tableOuterStyle
 	var b strings.Builder
 
-	// Inner content width: each col is " value " (+2) plus a trailing │,
-	// then one leading │ — so sum(width+3) characters between ┌ and ┐.
-	totalInner := 0
-	for _, c := range cols {
-		totalInner += c.Width + 3
-	}
+	totalInner := tableInnerWidth(cols)
+	tableW := totalInner + 1
 
-	// Top frame: solid outer line, no column junctions.
-	b.WriteString(outer.Render("┌" + strings.Repeat("─", totalInner-1) + "┐"))
-	b.WriteByte('\n')
+	if len(tabLabels) > 0 {
+		b.WriteString(renderAttachedTabs(tabLabels, activeTab, tableW, meta))
+		b.WriteByte('\n')
+	} else {
+		b.WriteString(outer.Render("┌" + strings.Repeat("─", totalInner-1) + "┐"))
+		b.WriteByte('\n')
+	}
 
 	// Header row
 	b.WriteString(outer.Render("│"))
@@ -156,8 +174,7 @@ func renderBoxTable(cols []tableCol, rows []boxRow) string {
 	b.WriteString(outer.Render("│"))
 	b.WriteByte('\n')
 
-	// Header separator: muted dashes/┼ inside; dark │ at the edges so the
-	// vertical frame stays continuous without mixed-colour joints.
+	// Header separator
 	b.WriteString(outer.Render("│"))
 	for j, c := range cols {
 		b.WriteString(inner.Render(strings.Repeat("─", c.Width+2)))
@@ -196,7 +213,143 @@ func renderBoxTable(cols []tableCol, rows []boxRow) string {
 		b.WriteByte('\n')
 	}
 
-	// Bottom frame: solid outer line, no column junctions.
 	b.WriteString(outer.Render("└" + strings.Repeat("─", totalInner-1) + "┘"))
 	return b.String()
+}
+
+type tabGeom struct {
+	label string
+	inner int
+	width int
+	start int
+}
+
+func padCenter(s string, width int) string {
+	s = truncateRunes(visibleName(s), width)
+	w := lipgloss.Width(s)
+	if w >= width {
+		return s
+	}
+	left := (width - w) / 2
+	right := width - w - left
+	return strings.Repeat(" ", left) + s + strings.Repeat(" ", right)
+}
+
+// renderAttachedTabs draws folder tabs that merge into a table top border.
+func renderAttachedTabs(labels []string, active, tableW int, meta string) string {
+	if len(labels) == 0 || tableW < 4 {
+		return ""
+	}
+	if active < 0 || active >= len(labels) {
+		active = 0
+	}
+	outer := tableOuterStyle
+
+	tabs := make([]tabGeom, len(labels))
+	col := 0
+	for i, lab := range labels {
+		inner := max(lipgloss.Width(lab)+2, 6)
+		tabs[i] = tabGeom{label: lab, inner: inner, width: inner + 2, start: col}
+		col += tabs[i].width + 1
+	}
+
+	var top, mid strings.Builder
+	for i, t := range tabs {
+		if i > 0 {
+			top.WriteByte(' ')
+			mid.WriteByte(' ')
+		}
+		top.WriteString(outer.Render("┌" + strings.Repeat("─", t.inner) + "┐"))
+
+		label := padCenter(t.label, t.inner)
+		if i == active {
+			label = tableHeaderStyle.Render(label)
+		} else {
+			label = mutedStyle.Render(label)
+		}
+		mid.WriteString(outer.Render("│"))
+		mid.WriteString(label)
+		mid.WriteString(outer.Render("│"))
+	}
+	if meta != "" {
+		used := 0
+		for i, t := range tabs {
+			if i > 0 {
+				used++
+			}
+			used += t.width
+		}
+		gap := max(tableW-used-lipgloss.Width(meta), 1)
+		mid.WriteString(strings.Repeat(" ", gap))
+		mid.WriteString(mutedStyle.Render(meta))
+	}
+
+	join := renderTabJoinLine(tabs, active, tableW)
+	return top.String() + "\n" + mid.String() + "\n" + outer.Render(join)
+}
+
+func renderTabJoinLine(tabs []tabGeom, active, tableW int) string {
+	line := make([]rune, tableW)
+	for i := range line {
+		line[i] = '─'
+	}
+	line[0] = '┌'
+	line[tableW-1] = '┐'
+
+	for i, t := range tabs {
+		left := t.start
+		right := t.start + t.width - 1
+		if left >= tableW {
+			break
+		}
+		if right >= tableW {
+			right = tableW - 1
+		}
+
+		if i == active {
+			// Open into the table; keep the left wall continuous with the tab.
+			if left == 0 {
+				line[0] = '│'
+			} else {
+				line[left] = '┘'
+			}
+			for x := left + 1; x < right; x++ {
+				line[x] = ' '
+			}
+			if right < tableW-1 {
+				line[right] = '└'
+			} else {
+				line[right] = '│'
+			}
+			continue
+		}
+
+		// Idle tab: closed bottom sitting on the rail.
+		// Leftmost idle tab needs ├ (not └/┌) so the tab's left │ continues
+		// down into the table wall and the rail runs under the tab — └ at the
+		// top of the panel leaves a gap at the WEEK/START junction.
+		if left == 0 {
+			line[0] = '├'
+		} else {
+			line[left] = '┴'
+		}
+		for x := left + 1; x < right; x++ {
+			line[x] = '─'
+		}
+		if right < tableW-1 {
+			line[right] = '┴'
+		}
+	}
+
+	// Single-column gaps between tabs stay on the rail.
+	for i := 0; i < len(tabs)-1; i++ {
+		gap := tabs[i].start + tabs[i].width
+		if gap > 0 && gap < tableW-1 {
+			if i == active || line[gap] == ' ' {
+				line[gap] = '─'
+			}
+		}
+	}
+
+	return string(line)
 }
