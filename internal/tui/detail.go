@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/reflow/wordwrap"
 )
 
@@ -82,9 +83,11 @@ func (m *Model) syncDetailViewport(height int) {
 	panelW := contentWidth(m.width)
 	textW := max(panelW-2-2*panelPadX, 20)
 	// Tab chrome (3) + bottom border (1) + vertical pad rows.
-	h := max(height-4-2*panelPadY, 1)
+	maxH := max(height-4-2*panelPadY, 1)
 	yOff := m.viewport.YOffset
 	content := m.detailContent(textW)
+	// Hug content height; only grow to the available body when the task is long.
+	h := min(max(lipgloss.Height(content), 1), maxH)
 	if !m.vpReady {
 		m.viewport = viewport.New(textW, h)
 		m.vpReady = true

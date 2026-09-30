@@ -173,3 +173,30 @@ func TestTaskTabLabelPrefersCustomID(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestDetailPanelHugsContentHeight(t *testing.T) {
+	m := &Model{
+		width:  100,
+		height: 40,
+		booted: true,
+		now:    time.Now(),
+		tab:    tabTask,
+	}
+	task := clickup.Task{ID: "x", CustomID: "OPS-1", Name: "Short", Status: clickup.TaskStatus{Status: "open"}}
+	m.detail = &task
+	view := stripANSI(m.View())
+	// Panel should end well before the footer on a tall terminal.
+	lines := strings.Split(view, "\n")
+	bottom := -1
+	for i, ln := range lines {
+		if strings.HasPrefix(ln, "└") && strings.HasSuffix(strings.TrimRight(ln, " "), "┘") {
+			bottom = i
+		}
+	}
+	if bottom < 0 {
+		t.Fatalf("missing panel bottom:\n%s", view)
+	}
+	if bottom > 20 {
+		t.Fatalf("detail panel too tall (bottom at line %d):\n%s", bottom, view)
+	}
+}
