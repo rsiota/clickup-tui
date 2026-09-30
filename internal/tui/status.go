@@ -159,8 +159,6 @@ func (m *Model) applyTaskStatusLocal(taskID string, st clickup.TaskStatus) {
 
 func (m Model) viewStatusOverlay() string {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("Set status"))
-	b.WriteByte('\n')
 	if m.statusCurrent != "" {
 		b.WriteString(mutedStyle.Render("current: " + strings.ToUpper(m.statusCurrent)))
 		b.WriteByte('\n')

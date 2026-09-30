@@ -58,6 +58,8 @@ func (m *Model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.openTimeForm(m.detail.Ref())
 	case "s":
 		return m.openStatusPicker(*m.detail)
+	case "o":
+		return m.openFocusedInBrowser()
 	case "r":
 		m.descriptionLoading = true
 		m.commentsLoading = true

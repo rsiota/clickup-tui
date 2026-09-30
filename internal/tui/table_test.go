@@ -121,6 +121,65 @@ func TestContentWidthHalfTerminal(t *testing.T) {
 	}
 }
 
+func TestFormCardUsesFolderChrome(t *testing.T) {
+	out := stripANSI(renderFormCard("COMMENT", 48, "hello"))
+	if !strings.Contains(out, "COMMENT") {
+		t.Fatalf("missing tab:\n%s", out)
+	}
+	if !strings.Contains(out, "┌") || !strings.Contains(out, "│") || !strings.Contains(out, "└") {
+		t.Fatalf("missing panel chrome:\n%s", out)
+	}
+	if !strings.Contains(out, "hello") {
+		t.Fatalf("missing body:\n%s", out)
+	}
+	// Active single tab should open into the panel (spaces on join under the tab).
+	lines := strings.Split(out, "\n")
+	if len(lines) < 3 {
+		t.Fatalf("too few lines:\n%s", out)
+	}
+	join := lines[2]
+	if !strings.HasPrefix(join, "│") {
+		t.Fatalf("expected open join under active tab, got %q", join)
+	}
+}
+
+func TestOverlayAppendsTabOnSharedCard(t *testing.T) {
+	m := &Model{
+		width:   100,
+		height:  30,
+		booted:  true,
+		tab:     tabTask,
+		overlay: overlayStatus,
+		detail:  &clickup.Task{ID: "x", CustomID: "OPS-42", Name: "Task"},
+	}
+	m.statusChoices = []clickup.ListStatus{{Status: "open"}, {Status: "done"}}
+	m.statusCurrent = "open"
+	labels, active := m.listTabLabels()
+	if len(labels) < 4 || labels[len(labels)-1] != "STATUS" {
+		t.Fatalf("labels=%v", labels)
+	}
+	if active != len(labels)-1 {
+		t.Fatalf("active=%d, want last", active)
+	}
+	out := stripANSI(m.viewOverlayCard())
+	for _, want := range []string{"WEEK", "TIME", "OPS-42", "STATUS", "OPEN"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q in:\n%s", want, out)
+		}
+	}
+	// Single card — one bottom border line (join rows also use └).
+	bottoms := 0
+	for _, ln := range strings.Split(out, "\n") {
+		trim := strings.TrimRight(ln, " ")
+		if strings.HasPrefix(trim, "└") && strings.HasSuffix(trim, "┘") {
+			bottoms++
+		}
+	}
+	if bottoms != 1 {
+		t.Fatalf("expected one card bottom, got %d:\n%s", bottoms, out)
+	}
+}
+
 func TestPanelChromePadsContent(t *testing.T) {
 	out := stripANSI(renderPanelChrome([]string{"WEEK", "TIME"}, 0, 40, "", "Hello"))
 	lines := strings.Split(out, "\n")

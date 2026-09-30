@@ -230,6 +230,16 @@ func renderBoxTableChrome(cols []tableCol, rows []boxRow, tabLabels []string, ac
 	return b.String()
 }
 
+// renderFormCard draws a short folder-tab card for overlays (comment, status,
+// time forms) using the same chrome as list/detail panels.
+func renderFormCard(title string, panelW int, body string) string {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		title = "FORM"
+	}
+	return renderPanelChrome([]string{title}, 0, panelW, "", body)
+}
+
 // renderPanelChrome draws folder tabs opening into a solid content panel
 // (used for task detail — same chrome language as the tables).
 func renderPanelChrome(tabLabels []string, activeTab, panelW int, meta string, body string) string {

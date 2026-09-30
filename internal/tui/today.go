@@ -23,6 +23,12 @@ func (m *Model) updateToday(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch msg.String() {
+	case "[":
+		return m, m.shiftWeek(-1)
+	case "]":
+		return m, m.shiftWeek(1)
+	case "T":
+		return m, m.jumpWeekCurrent()
 	case "up", "k":
 		m.moveWeek(-1)
 		return m.afterWeekNav()
@@ -45,6 +51,8 @@ func (m *Model) updateToday(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if t, ok := m.today.task(); ok {
 			return m.openTimeForm(t.Ref())
 		}
+	case "o":
+		return m.openFocusedInBrowser()
 	}
 	return m, nil
 }
@@ -111,12 +119,12 @@ func (m Model) viewToday(height int) string {
 		cols := weekTableCols(contentWidth(m.width), 6)
 		b.WriteString(renderBoxTableChrome(cols, nil, tabs, active, meta))
 		b.WriteString("\n")
-		b.WriteString(" " + m.spin.View() + " loading this week’s tasks…")
+		b.WriteString(" " + m.spin.View() + " loading week’s tasks…")
 		return b.String()
 	}
 
 	logged := clickup.FormatMillis(m.loggedToday)
-	start, end := clickup.WeekBounds(m.now)
+	start, end := clickup.WeekBounds(m.weekAnchor())
 	rangeLabel := fmt.Sprintf("%s – %s", start.Format("2 Jan"), end.Add(-time.Nanosecond).Format("2 Jan"))
 	summary := mutedStyle.Render(fmt.Sprintf("%s · %d tasks · %s logged today", rangeLabel, len(tasks), logged))
 
@@ -155,7 +163,7 @@ func (m Model) renderTaskList(tasks []clickup.Task, cursor, col, offset, height 
 }
 
 func (m Model) weekRows(tasks []clickup.Task) []listRow {
-	start, _ := clickup.WeekBounds(m.now)
+	start, _ := clickup.WeekBounds(m.weekAnchor())
 	todayStart := startOfDay(m.now)
 
 	type indexed struct {
@@ -297,8 +305,8 @@ func renderTaskBox(rows []listRow, cursor, col, offset, height int, cols []table
 	return renderBoxTable(cols, boxRows)
 }
 
-func firstTodaySelRow(tasks []clickup.Task, now time.Time) int {
-	start, _ := clickup.WeekBounds(now)
+func firstTodaySelRow(tasks []clickup.Task, weekAnchor, now time.Time) int {
+	start, _ := clickup.WeekBounds(weekAnchor)
 	todayStart := startOfDay(now)
 	row := 0
 	for i := 0; i < 7; i++ {

@@ -9,7 +9,6 @@ import (
 	"clickup-tui/internal/clickup"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 )
 
 func (m *Model) openCommentForm() (tea.Model, tea.Cmd) {
@@ -149,36 +148,60 @@ func parseAddTime(s string) (string, clickup.TimeLog, error) {
 	return parts[0], log, nil
 }
 
-func (m Model) viewOverlay() string {
-	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(line).
-		Foreground(fg).
-		Padding(0, 1).
-		Width(max(m.width-4, 20))
-
+func (m Model) overlayTabTitle() string {
 	switch m.overlay {
 	case overlayComment:
-		return box.Render("Comment\n" + m.comment.View())
+		return "COMMENT"
 	case overlayTime:
-		return box.Render(fmt.Sprintf("Log time on %s\n%s\n%s",
-			m.formID,
-			m.input.View(),
-			mutedStyle.Render("duration  ·  or  start duration  e.g. 9:30 1h30m"),
-		))
+		return "LOG TIME"
 	case overlayEditTime:
-		return box.Render("Update duration\n" + m.input.View())
+		return "DURATION"
 	case overlayAddTime:
-		return box.Render("Add time  (TASK-ID [start] duration)\n" + m.input.View())
+		return "ADD TIME"
 	case overlaySearch:
-		return box.Render("Search\n" + m.input.View())
+		return "SEARCH"
 	case overlayConfirmDelete:
-		return box.Render("Delete this time entry?  y / n")
+		return "DELETE"
 	case overlayStatus:
-		return box.Render(m.viewStatusOverlay())
+		return "STATUS"
 	default:
 		return ""
 	}
+}
+
+func (m Model) overlayBody() string {
+	switch m.overlay {
+	case overlayComment:
+		return m.comment.View()
+	case overlayTime:
+		return fmt.Sprintf("%s\n%s\n%s",
+			mutedStyle.Render("on "+m.formID),
+			m.input.View(),
+			mutedStyle.Render("duration  ·  or  start duration  e.g. 9:30 1h30m"),
+		)
+	case overlayEditTime:
+		return m.input.View()
+	case overlayAddTime:
+		return fmt.Sprintf("%s\n%s",
+			m.input.View(),
+			mutedStyle.Render("TASK-ID [start] duration"),
+		)
+	case overlaySearch:
+		return m.input.View()
+	case overlayConfirmDelete:
+		return "Delete this time entry?  y / n"
+	case overlayStatus:
+		return m.viewStatusOverlay()
+	default:
+		return ""
+	}
+}
+
+// viewOverlayCard renders the form inside the shared folder-tab card, with the
+// overlay title appended as the active tab beside WEEK/TIME/task.
+func (m Model) viewOverlayCard() string {
+	tabs, active := m.listTabLabels()
+	return renderPanelChrome(tabs, active, contentWidth(m.width), m.headerMeta(), m.overlayBody())
 }
 
 func (m Model) postComment(text string) tea.Cmd {

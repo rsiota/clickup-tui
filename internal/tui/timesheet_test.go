@@ -39,3 +39,22 @@ func TestShiftTimeDay(t *testing.T) {
 		t.Fatalf("jump today → %v", m.timeDay)
 	}
 }
+
+func TestShiftWeekAndJumpCurrent(t *testing.T) {
+	now := time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC) // Wed
+	m := &Model{now: now, weekDay: startOfDay(now)}
+	_ = m.shiftWeek(-1)
+	want := startOfDay(now.AddDate(0, 0, -7))
+	if !m.weekDay.Equal(want) {
+		t.Fatalf("weekDay after -1 = %v, want %v", m.weekDay, want)
+	}
+	_ = m.shiftWeek(1)
+	if !m.weekDay.Equal(startOfDay(now)) {
+		t.Fatalf("weekDay after +1 = %v, want %v", m.weekDay, startOfDay(now))
+	}
+	_ = m.shiftWeek(-2)
+	_ = m.jumpWeekCurrent()
+	if !m.weekDay.Equal(startOfDay(now)) {
+		t.Fatalf("jump current → %v, want %v", m.weekDay, startOfDay(now))
+	}
+}

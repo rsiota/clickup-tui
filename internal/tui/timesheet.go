@@ -90,6 +90,8 @@ func (m *Model) updateTimesheet(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.overlay = overlayConfirmDelete
 			return m, nil
 		}
+	case "o":
+		return m.openFocusedInBrowser()
 	}
 	return m, nil
 }

@@ -119,6 +119,7 @@ type Model struct {
 	spin     spinner.Model
 	now      time.Time
 	timeDay  time.Time // Time tab: day being viewed
+	weekDay  time.Time // Week tab: any day in the week being viewed
 	loggedToday int64  // calendar-today total for Week header
 
 	today     listState
@@ -182,6 +183,10 @@ func New(client *clickup.Client, cfg *config.Config) *Model {
 	ta.CharLimit = 8000
 	ta.ShowLineNumbers = false
 	ta.SetHeight(5)
+	// Quiet prompt — the form card supplies the frame.
+	ta.Prompt = ""
+	ta.FocusedStyle.Prompt = lipgloss.NewStyle()
+	ta.BlurredStyle.Prompt = lipgloss.NewStyle()
 
 	ti := textinput.New()
 	ti.CharLimit = 64
@@ -195,6 +200,7 @@ func New(client *clickup.Client, cfg *config.Config) *Model {
 		spin:        sp,
 		now:         now,
 		timeDay:     startOfDay(now),
+		weekDay:     startOfDay(now),
 		comment:     ta,
 		input:       ti,
 		statusCache: make(map[string][]clickup.ListStatus),
@@ -280,10 +286,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.today.setTasks(msg.tasks)
 		m.rebuildTaskCache(msg.tasks)
 		m.timeDay = startOfDay(m.now)
+		m.weekDay = startOfDay(m.now)
 		m.timesheet.setEntries(msg.entries)
 		m.loggedToday = totalLogged(msg.entries)
 		m.today.cursor = firstTodayIndex(msg.tasks, m.now)
-		m.today.selRow = firstTodaySelRow(msg.tasks, m.now)
+		m.today.selRow = firstTodaySelRow(msg.tasks, m.weekAnchor(), m.now)
 		m.today.offset = ensureVisible(m.today.selRow, 0, m.weekListHeight())
 		if m.cfg.Workspace == "" {
 			m.cfg.Workspace = msg.workspace.ID.String()
@@ -307,7 +314,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.timesheet.setEntries(msg.entries)
 			}
 			m.today.cursor = firstTodayIndex(msg.tasks, m.now)
-			m.today.selRow = firstTodaySelRow(msg.tasks, m.now)
+			m.today.selRow = firstTodaySelRow(msg.tasks, m.weekAnchor(), m.now)
 			m.today.offset = ensureVisible(m.today.selRow, 0, m.weekListHeight())
 			m.status = fmt.Sprintf("Refreshed %d tasks", len(msg.tasks))
 			m.rebuildPrefetchQueue(msg.tasks)
@@ -561,16 +568,25 @@ func (m *Model) refreshCurrent() (tea.Model, tea.Cmd) {
 	}
 }
 
+func (m Model) weekAnchor() time.Time {
+	if m.weekDay.IsZero() {
+		return m.now
+	}
+	return m.weekDay
+}
+
 func (m Model) loadToday() tea.Cmd {
 	ws := m.workspace.ID.String()
 	uid := m.user.ID
+	week := m.weekAnchor()
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 		defer cancel()
-		tasks, err := m.client.WeekTasks(ctx, ws, uid, time.Now())
+		tasks, err := m.client.WeekTasks(ctx, ws, uid, week)
 		if err != nil {
 			return todayMsg{err: err}
 		}
+		// Always refresh calendar-today totals for the Week summary line.
 		entries, err := m.client.DayEntries(ctx, ws, time.Now())
 		return todayMsg{tasks: tasks, entries: entries, err: err}
 	}
@@ -618,6 +634,40 @@ func (m *Model) jumpTimeToday() tea.Cmd {
 	m.err = nil
 	m.status = ""
 	return m.loadTimesheet()
+}
+
+// shiftWeek moves the Week tab by delta weeks and reloads tasks.
+func (m *Model) shiftWeek(delta int) tea.Cmd {
+	if m.weekDay.IsZero() {
+		m.weekDay = startOfDay(m.now)
+	}
+	m.weekDay = startOfDay(m.weekDay.AddDate(0, 0, 7*delta))
+	m.today.cursor = 0
+	m.today.selRow = 0
+	m.today.offset = 0
+	m.today.col = 0
+	m.loading = true
+	m.err = nil
+	m.status = ""
+	return m.loadToday()
+}
+
+func (m *Model) jumpWeekCurrent() tea.Cmd {
+	current := startOfDay(m.now)
+	curStart, _ := clickup.WeekBounds(current)
+	viewStart, _ := clickup.WeekBounds(m.weekAnchor())
+	if curStart.Equal(viewStart) {
+		return nil
+	}
+	m.weekDay = current
+	m.today.cursor = 0
+	m.today.selRow = 0
+	m.today.offset = 0
+	m.today.col = 0
+	m.loading = true
+	m.err = nil
+	m.status = ""
+	return m.loadToday()
 }
 
 func (m Model) loadDetail(id string) tea.Cmd {
@@ -687,7 +737,8 @@ func (m *Model) openTask(id string) tea.Cmd {
 
 func (m *Model) syncSizes() {
 	w := max(m.width-2, 20)
-	m.comment.SetWidth(w)
+	// Comment field fills the card-width overlay (border 2 + padding 2).
+	m.comment.SetWidth(max(contentWidth(m.width)-4, 10))
 	if m.cellEdit {
 		m.syncCellEditWidth()
 	} else {
@@ -720,9 +771,6 @@ func (m *Model) contentBodyHeight() int {
 	if header != "" {
 		used += lipgloss.Height(header) + 1
 	}
-	if m.overlay != overlayNone {
-		used += lipgloss.Height(m.viewOverlay()) + 1
-	}
 	return max(m.height-used, 1)
 }
 
@@ -736,16 +784,15 @@ func (m *Model) View() string {
 
 	header := m.viewHeader()
 	footer := m.viewFooter()
-	overlay := ""
-	if m.overlay != overlayNone {
-		overlay = m.viewOverlay()
-	}
 	bodyH := m.contentBodyHeight()
 
 	var body string
 	switch {
 	case !m.booted:
 		body = " " + m.spin.View() + " signing in…"
+	case m.overlay != overlayNone:
+		// Forms append as an active tab on the shared card, replacing the body.
+		body = m.viewOverlayCard()
 	case m.showingDetail():
 		body = m.viewDetail(bodyH)
 	default:
@@ -758,9 +805,6 @@ func (m *Model) View() string {
 		parts = append(parts, header, "")
 	}
 	parts = append(parts, body)
-	if overlay != "" {
-		parts = append(parts, overlay)
-	}
 	parts = append(parts, footer)
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
@@ -806,6 +850,10 @@ func (m Model) listTabLabels() ([]string, int) {
 		if m.tab == tabTask {
 			active = len(labels) - 1
 		}
+	}
+	if title := m.overlayTabTitle(); title != "" {
+		labels = append(labels, title)
+		active = len(labels) - 1
 	}
 	if active < 0 {
 		active = 0
@@ -877,21 +925,21 @@ func (m Model) helpText() string {
 		}
 	}
 	if m.showingDetail() {
-		return "c comment   t log time   s status   r refresh   1/2 tabs   esc close   q quit"
+		return "c comment   t log time   s status   o browser   r refresh   1/2 tabs   esc close   q quit"
 	}
 	switch m.tab {
 	case tabTime:
-		help := "[/] day   t today   ↑/↓/←/→ move   enter edit/open   i edit   yy yank   p paste   a add   d delete   r refresh   q quit"
+		help := "[/] day   t today   ↑/↓/←/→ move   enter edit/open   i edit   yy yank   p paste   o browser   a add   d delete   r refresh   q quit"
 		if searchEnabled {
-			help = "[/] day   t today   ↑/↓/←/→ move   enter edit/open   i edit   yy yank   p paste   a add   d delete   r refresh   / search   q quit"
+			help = "[/] day   t today   ↑/↓/←/→ move   enter edit/open   i edit   yy yank   p paste   o browser   a add   d delete   r refresh   / search   q quit"
 		}
 		return help
 	case tabSearch:
-		return "↑/↓/←/→ move   enter open   s status   t log time   / search   r refresh   q quit"
+		return "↑/↓/←/→ move   enter open   s status   t log time   o browser   / search   r refresh   q quit"
 	default:
-		help := "↑/↓/←/→ move   enter open   s status   t log time   r refresh   q quit"
+		help := "[/] week   T this week   ↑/↓/←/→ move   enter open   s status   t log time   o browser   r refresh   q quit"
 		if searchEnabled {
-			help = "↑/↓/←/→ move   enter open   s status   t log time   r refresh   / search   q quit"
+			help = "[/] week   T this week   ↑/↓/←/→ move   enter open   s status   t log time   o browser   r refresh   / search   q quit"
 		}
 		return help
 	}

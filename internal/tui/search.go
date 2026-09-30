@@ -47,6 +47,8 @@ func (m *Model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if t, ok := m.search.task(); ok {
 			return m.openTimeForm(t.Ref())
 		}
+	case "o":
+		return m.openFocusedInBrowser()
 	}
 	return m, nil
 }
