@@ -18,6 +18,9 @@ func (m *Model) closeDetail() {
 	m.descriptionLoading = false
 	m.commentsLoading = false
 	m.tab = m.fromTab
+	if m.tab == tabTask {
+		m.tab = tabToday
+	}
 	m.status = ""
 	m.err = nil
 	m.input.Blur()
@@ -35,6 +38,18 @@ func (m *Model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "backspace":
 		m.closeDetail()
+		return m, nil
+	case "1", "2", "3", "4":
+		if t, ok := m.tabByDigit(msg.String()); ok && t != tabTask {
+			m.selectTab(t)
+			return m, nil
+		}
+		return m, nil
+	case "tab":
+		m.selectTab(m.nextTab(1))
+		return m, nil
+	case "shift+tab":
+		m.selectTab(m.nextTab(-1))
 		return m, nil
 	case "c":
 		return m.openCommentForm()
@@ -64,15 +79,17 @@ func (m *Model) syncDetailViewport(height int) {
 	if m.detail == nil {
 		return
 	}
-	w := max(m.width-2, 20)
-	h := max(height, 3)
+	panelW := contentWidth(m.width)
+	textW := max(panelW-2-2*panelPadX, 20)
+	// Tab chrome (3) + bottom border (1) + vertical pad rows.
+	h := max(height-4-2*panelPadY, 1)
 	yOff := m.viewport.YOffset
-	content := m.detailContent(w)
+	content := m.detailContent(textW)
 	if !m.vpReady {
-		m.viewport = viewport.New(w, h)
+		m.viewport = viewport.New(textW, h)
 		m.vpReady = true
 	}
-	m.viewport.Width = w
+	m.viewport.Width = textW
 	m.viewport.Height = h
 	m.viewport.SetContent(content)
 	if yOff > 0 {
@@ -87,14 +104,19 @@ func (m *Model) viewDetail(height int) string {
 	// Always sync on paint so the first Enter shows content without needing
 	// a second keypress to force a redraw.
 	m.syncDetailViewport(height)
-	return m.viewport.View()
+	tabs, active := m.listTabLabels()
+	meta := m.headerMeta()
+	return renderPanelChrome(tabs, active, contentWidth(m.width), meta, m.viewport.View())
 }
 
 func (m Model) detailContent(width int) string {
 	t := *m.detail
 	var b strings.Builder
 
-	title := t.Ref() + "  " + t.Name
+	title := t.Name
+	if title == "" {
+		title = t.Ref()
+	}
 	fmt.Fprintf(&b, "%s\n", titleStyle.Render(title))
 
 	meta := []string{t.Status.Status}

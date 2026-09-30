@@ -109,6 +109,39 @@ func TestRenderBoxTableChromeHasTabs(t *testing.T) {
 	}
 }
 
+func TestContentWidthHalfTerminal(t *testing.T) {
+	if got := contentWidth(200); got != 100 {
+		t.Fatalf("wide terminal: got %d, want 100", got)
+	}
+	if got := contentWidth(120); got != 60 {
+		t.Fatalf("mid terminal: got %d, want 60", got)
+	}
+	if got := contentWidth(60); got != panelMinWidth {
+		t.Fatalf("narrow terminal: got %d, want %d", got, panelMinWidth)
+	}
+}
+
+func TestPanelChromePadsContent(t *testing.T) {
+	out := stripANSI(renderPanelChrome([]string{"WEEK", "TIME"}, 0, 40, "", "Hello"))
+	lines := strings.Split(out, "\n")
+	// Body rows are full-width │…│ lines after the 3-line tab chrome.
+	if len(lines) < 6 {
+		t.Fatalf("too few lines:\n%s", out)
+	}
+	pad := lines[3]
+	content := lines[4]
+	if !(strings.HasPrefix(pad, "│") && strings.HasSuffix(pad, "│")) {
+		t.Fatalf("expected pad row, got %q", pad)
+	}
+	inner := pad[len("│") : len(pad)-len("│")]
+	if strings.TrimSpace(inner) != "" {
+		t.Fatalf("expected empty top pad, got %q", pad)
+	}
+	if !strings.Contains(content, " Hello") {
+		t.Fatalf("expected left-padded content, got %q", content)
+	}
+}
+
 func TestWeekTableColsFit(t *testing.T) {
 	cols := weekTableCols(100, 12)
 	if len(cols) != 4 || cols[0].Title != "DAY" {

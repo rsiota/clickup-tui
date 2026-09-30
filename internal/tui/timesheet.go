@@ -300,7 +300,7 @@ func (m *Model) viewTimesheet(height int) string {
 	entries := entriesOf(m.timesheet)
 	tabs, active := m.listTabLabels()
 	meta := m.headerMeta()
-	cols := timeTableCols(max(m.width-2, 40))
+	cols := timeTableCols(contentWidth(m.width))
 	// Tab chrome (3) + table header/sep/bottom (3) + summary (1).
 	avail := max(height-3-3-1, 1)
 	summary := mutedStyle.Render(fmt.Sprintf("%s · %d entries · %s", timeDayLabel(m.timeDay, m.now), len(entries), clickup.FormatMillis(totalLogged(entries))))

@@ -8,6 +8,19 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// Panel chrome sizing: keep WEEK/TIME/task cards readable on wide terminals.
+const (
+	panelMinWidth = 40
+	panelPadX     = 1 // matches table cell side padding (" value ")
+	panelPadY     = 1
+)
+
+// contentWidth is the outer width of list/detail cards — half the terminal,
+// floored at panelMinWidth so narrow windows still fit the chrome.
+func contentWidth(termW int) int {
+	return max(termW/2, panelMinWidth)
+}
+
 // tableCol is a fixed-width column for boxed tables (creel-style).
 type tableCol struct {
 	Title string
@@ -78,8 +91,8 @@ func timeTableCols(totalWidth int) []tableCol {
 	durW := len("DURATION")
 	frame := boxFrameOverhead(4)
 	rest := max(totalWidth-frame-startW-durW, 24)
-	// Split remaining between NOTE and TASK; NOTE gets a bit less.
-	noteW := max(rest/3, len("NOTE"))
+	// Split remaining between NOTE and TASK; NOTE gets a bit more than TASK.
+	noteW := max(rest*3/5, len("NOTE"))
 	nameW := max(rest-noteW, 12)
 	return []tableCol{
 		{Title: "START", Width: startW},
@@ -214,6 +227,52 @@ func renderBoxTableChrome(cols []tableCol, rows []boxRow, tabLabels []string, ac
 	}
 
 	b.WriteString(outer.Render("└" + strings.Repeat("─", totalInner-1) + "┘"))
+	return b.String()
+}
+
+// renderPanelChrome draws folder tabs opening into a solid content panel
+// (used for task detail — same chrome language as the tables).
+func renderPanelChrome(tabLabels []string, activeTab, panelW int, meta string, body string) string {
+	if panelW < 4 {
+		panelW = 4
+	}
+	outer := tableOuterStyle
+	innerW := panelW - 2
+	textW := max(innerW-2*panelPadX, 1)
+	var b strings.Builder
+
+	if len(tabLabels) > 0 {
+		b.WriteString(renderAttachedTabs(tabLabels, activeTab, panelW, meta))
+		b.WriteByte('\n')
+	} else {
+		b.WriteString(outer.Render("┌" + strings.Repeat("─", innerW) + "┐"))
+		b.WriteByte('\n')
+	}
+
+	writePad := func(line string) {
+		b.WriteString(outer.Render("│"))
+		b.WriteString(strings.Repeat(" ", panelPadX))
+		b.WriteString(padVisible(line, textW))
+		b.WriteString(strings.Repeat(" ", panelPadX))
+		b.WriteString(outer.Render("│"))
+		b.WriteByte('\n')
+	}
+
+	for i := 0; i < panelPadY; i++ {
+		writePad("")
+	}
+	lines := strings.Split(body, "\n")
+	if len(lines) == 0 {
+		lines = []string{""}
+	}
+	for _, line := range lines {
+		writePad(line)
+	}
+	for i := 0; i < panelPadY; i++ {
+		writePad("")
+	}
+
+	b.WriteString(outer.Render("└" + strings.Repeat("─", innerW) + "┘"))
 	return b.String()
 }
 

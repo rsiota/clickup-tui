@@ -23,6 +23,7 @@ const (
 	tabToday tab = iota
 	tabTime
 	tabSearch
+	tabTask // ephemeral task detail tab (parked while WEEK/TIME stay available)
 )
 
 // searchEnabled temporarily hides the Search tab and "/" shortcut.
@@ -37,6 +38,8 @@ func (t tab) title() string {
 		return "time"
 	case tabSearch:
 		return "search"
+	case tabTask:
+		return "task"
 	default:
 		return ""
 	}
@@ -254,7 +257,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.syncSizes()
-		if m.booted && m.tab == tabToday && m.detail == nil {
+		if m.booted && m.tab == tabToday {
 			m.today.offset = m.weekEnsureVisible(m.today.offset)
 		}
 		return m, nil
@@ -414,7 +417,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyTaskStatusLocal(taskID, st)
 		m.closeStatusPicker()
 		m.status = "Status → " + st.Status
-		if m.detail != nil {
+		if m.showingDetail() {
 			m.refreshViewport()
 		}
 		return m, nil
@@ -429,7 +432,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.input.Blur()
 			m.comment.Blur()
 			if msg.then != nil {
-				if m.detail != nil {
+				if m.showingDetail() {
 					m.descriptionLoading = true
 					m.commentsLoading = true
 				} else {
@@ -447,7 +450,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.overlay != overlayNone {
 			return m.updateOverlay(msg)
 		}
-		if m.detail != nil {
+		if m.showingDetail() {
 			return m.updateDetail(msg)
 		}
 		return m.updateTabs(msg)
@@ -460,28 +463,17 @@ func (m *Model) updateTabs(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q", "ctrl+c":
 		return m, tea.Quit
-	case "1":
-		m.tab = tabToday
-		m.status = ""
-		return m, nil
-	case "2":
-		m.tab = tabTime
-		m.status = ""
-		return m, nil
-	case "3":
-		if !searchEnabled {
+	case "1", "2", "3", "4":
+		if t, ok := m.tabByDigit(msg.String()); ok {
+			m.selectTab(t)
 			return m, nil
 		}
-		m.tab = tabSearch
-		m.status = ""
 		return m, nil
 	case "tab":
-		m.tab = m.nextTab(1)
-		m.status = ""
+		m.selectTab(m.nextTab(1))
 		return m, nil
 	case "shift+tab":
-		m.tab = m.nextTab(-1)
-		m.status = ""
+		m.selectTab(m.nextTab(-1))
 		return m, nil
 	case "r":
 		return m.refreshCurrent()
@@ -503,11 +495,40 @@ func (m *Model) updateTabs(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) nextTab(delta int) tab {
+func (m *Model) selectTab(t tab) {
+	if t == tabTask && m.detail == nil {
+		return
+	}
+	if t == tabSearch && !searchEnabled {
+		return
+	}
+	m.tab = t
+	m.status = ""
+	m.err = nil
+}
+
+func (m Model) openTabs() []tab {
 	tabs := []tab{tabToday, tabTime}
 	if searchEnabled {
 		tabs = append(tabs, tabSearch)
 	}
+	if m.detail != nil {
+		tabs = append(tabs, tabTask)
+	}
+	return tabs
+}
+
+func (m Model) tabByDigit(digit string) (tab, bool) {
+	tabs := m.openTabs()
+	idx := int(digit[0] - '1')
+	if idx < 0 || idx >= len(tabs) {
+		return 0, false
+	}
+	return tabs[idx], true
+}
+
+func (m Model) nextTab(delta int) tab {
+	tabs := m.openTabs()
 	idx := 0
 	for i, t := range tabs {
 		if t == m.tab {
@@ -519,6 +540,10 @@ func (m Model) nextTab(delta int) tab {
 	return tabs[(idx+delta%n+n)%n]
 }
 
+func (m Model) showingDetail() bool {
+	return m.detail != nil && m.tab == tabTask
+}
+
 func (m *Model) refreshCurrent() (tea.Model, tea.Cmd) {
 	if !m.booted {
 		return m, nil
@@ -527,7 +552,7 @@ func (m *Model) refreshCurrent() (tea.Model, tea.Cmd) {
 	m.err = nil
 	m.status = ""
 	switch {
-	case m.detail != nil:
+	case m.showingDetail():
 		return m, m.loadDetail(m.detail.ID)
 	case m.tab == tabTime:
 		return m, m.loadTimesheet()
@@ -636,8 +661,12 @@ func (m Model) fetchTaskComments(id string) tea.Cmd {
 }
 
 func (m *Model) openTask(id string) tea.Cmd {
-	m.fromTab = m.tab
+	if m.tab != tabTask {
+		m.fromTab = m.tab
+	}
+	m.tab = tabTask
 	m.err = nil
+	m.status = ""
 	m.commentsLoading = true
 	m.comments = nil
 	m.cancelPrefetch(id)
@@ -664,7 +693,7 @@ func (m *Model) syncSizes() {
 	} else {
 		m.input.Width = min(40, w)
 	}
-	if m.detail != nil {
+	if m.showingDetail() {
 		m.refreshViewport()
 	}
 }
@@ -675,7 +704,7 @@ func (m *Model) syncCellEditWidth() {
 	if !m.cellEdit {
 		return
 	}
-	cols := timeTableCols(max(m.width-2, 40))
+	cols := timeTableCols(contentWidth(m.width))
 	col := m.timesheet.col
 	if col < 0 || col >= len(cols) {
 		return
@@ -717,7 +746,7 @@ func (m *Model) View() string {
 	switch {
 	case !m.booted:
 		body = " " + m.spin.View() + " signing in…"
-	case m.detail != nil:
+	case m.showingDetail():
 		body = m.viewDetail(bodyH)
 	default:
 		body = m.viewCurrentList(bodyH)
@@ -762,15 +791,34 @@ func (m Model) listTabLabels() ([]string, int) {
 	case tabTime:
 		active = 1
 	case tabSearch:
-		if searchEnabled {
-			labels = append(labels, "SEARCH")
-			active = 2
+		active = -1
+	case tabTask:
+		active = -1
+	}
+	if searchEnabled {
+		labels = append(labels, "SEARCH")
+		if m.tab == tabSearch {
+			active = len(labels) - 1
 		}
 	}
-	if searchEnabled && m.tab != tabSearch {
-		labels = append(labels, "SEARCH")
+	if m.detail != nil {
+		labels = append(labels, taskTabLabel(*m.detail))
+		if m.tab == tabTask {
+			active = len(labels) - 1
+		}
+	}
+	if active < 0 {
+		active = 0
 	}
 	return labels, active
+}
+
+func taskTabLabel(t clickup.Task) string {
+	ref := strings.TrimSpace(t.Ref())
+	if ref == "" {
+		ref = "TASK"
+	}
+	return truncateRunes(ref, 12)
 }
 
 func (m Model) headerMeta() string {
@@ -785,15 +833,8 @@ func (m Model) headerMeta() string {
 }
 
 func (m Model) viewHeader() string {
-	// List tabs are drawn attached to the table; only show a meta bar in detail.
-	if m.detail == nil {
-		return ""
-	}
-	meta := m.headerMeta()
-	if meta == "" {
-		return ""
-	}
-	return mutedStyle.Render(meta)
+	// Tabs + meta live on the attached panel chrome for list and detail.
+	return ""
 }
 
 func (m Model) viewFooter() string {
@@ -835,8 +876,8 @@ func (m Model) helpText() string {
 			return "enter submit   esc cancel"
 		}
 	}
-	if m.detail != nil {
-		return "c comment   t log time   s status   r refresh   esc back   q quit"
+	if m.showingDetail() {
+		return "c comment   t log time   s status   r refresh   1/2 tabs   esc close   q quit"
 	}
 	switch m.tab {
 	case tabTime:

@@ -108,7 +108,7 @@ func (m Model) viewToday(height int) string {
 	if m.loading && len(tasks) == 0 {
 		var b strings.Builder
 		// Keep tab chrome visible while loading.
-		cols := weekTableCols(max(m.width-2, 40), 6)
+		cols := weekTableCols(contentWidth(m.width), 6)
 		b.WriteString(renderBoxTableChrome(cols, nil, tabs, active, meta))
 		b.WriteString("\n")
 		b.WriteString(" " + m.spin.View() + " loading this week’s tasks…")
@@ -121,7 +121,7 @@ func (m Model) viewToday(height int) string {
 	summary := mutedStyle.Render(fmt.Sprintf("%s · %d tasks · %s logged today", rangeLabel, len(tasks), logged))
 
 	statusW := weekStatusColumnWidth(tasks)
-	cols := weekTableCols(max(m.width-2, 40), statusW)
+	cols := weekTableCols(contentWidth(m.width), statusW)
 	// Tab chrome (3) + table header/sep/bottom (3) + summary (1).
 	avail := max(height-3-3-1, 1)
 	rows := m.weekRows(tasks)
@@ -148,7 +148,7 @@ func (m Model) renderTaskList(tasks []clickup.Task, cursor, col, offset, height 
 		t := tasks[i]
 		rows = append(rows, listRow{task: &t, index: i})
 	}
-	cols := taskTableCols(max(m.width-2, 40))
+	cols := taskTableCols(contentWidth(m.width))
 	avail := max(height-3, 1)
 	offset = ensureVisible(cursor, offset, avail)
 	return renderTaskBox(rows, cursor, col, offset, avail, cols)
