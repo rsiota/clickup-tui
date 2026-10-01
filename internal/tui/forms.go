@@ -14,9 +14,18 @@ import (
 func (m *Model) openCommentForm() (tea.Model, tea.Cmd) {
 	m.overlay = overlayComment
 	m.comment.SetValue("")
+	m.mentionBindings = map[string]int{}
+	m.mentionCursor = 0
+	m.mentionSuppress = false
+	m.mentionSuppressQ = ""
 	m.syncSizes()
 	m.refreshViewport()
-	return m, m.comment.Focus()
+	var cmds []tea.Cmd
+	cmds = append(cmds, m.comment.Focus())
+	if len(m.mentionCandidates()) == 0 {
+		cmds = append(cmds, m.loadWorkspaceMembers())
+	}
+	return m, tea.Batch(cmds...)
 }
 
 func (m *Model) openTimeForm(taskRef string) (tea.Model, tea.Cmd) {
@@ -52,6 +61,10 @@ func (m *Model) updateOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if keyIsEsc(msg) {
+		if m.overlay == overlayComment && m.mentionQueryOpen() {
+			m.suppressMentionPicker()
+			return m, nil
+		}
 		m.overlay = overlayNone
 		m.comment.Blur()
 		m.input.Blur()
@@ -73,18 +86,7 @@ func (m *Model) updateOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.overlay == overlayComment {
-		if msg.String() == "ctrl+s" {
-			text := strings.TrimSpace(m.comment.Value())
-			if text == "" {
-				m.err = fmt.Errorf("comment is empty")
-				return m, nil
-			}
-			m.loading = true
-			return m, m.postComment(text)
-		}
-		var cmd tea.Cmd
-		m.comment, cmd = m.comment.Update(msg)
-		return m, cmd
+		return m.updateCommentOverlay(msg)
 	}
 
 	if keyIsEnter(msg) {
@@ -169,10 +171,52 @@ func (m Model) overlayTabTitle() string {
 	}
 }
 
+func (m *Model) updateCommentOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.String() == "ctrl+s" {
+		text := strings.TrimSpace(m.comment.Value())
+		if text == "" {
+			m.err = fmt.Errorf("comment is empty")
+			return m, nil
+		}
+		m.loading = true
+		m.err = nil
+		return m, m.postComment(text)
+	}
+
+	matches := m.mentionMatches()
+	if m.mentionQueryOpen() && len(matches) > 0 {
+		switch {
+		case msg.String() == "up" || msg.String() == "ctrl+p":
+			if m.mentionCursor > 0 {
+				m.mentionCursor--
+			}
+			return m, nil
+		case msg.String() == "down" || msg.String() == "ctrl+n":
+			if m.mentionCursor < len(matches)-1 {
+				m.mentionCursor++
+			}
+			return m, nil
+		case keyIsEnter(msg) || msg.String() == "tab":
+			idx := clamp(m.mentionCursor, 0, len(matches)-1)
+			m.insertMention(matches[idx])
+			return m, nil
+		}
+	}
+
+	var cmd tea.Cmd
+	m.comment, cmd = m.comment.Update(msg)
+	m.syncMentionPicker()
+	return m, cmd
+}
+
 func (m Model) overlayBody() string {
 	switch m.overlay {
 	case overlayComment:
-		return m.comment.View()
+		body := m.comment.View()
+		if picker := m.viewMentionPicker(); picker != "" {
+			body += "\n\n" + picker
+		}
+		return body
 	case overlayTime:
 		return fmt.Sprintf("%s\n%s\n%s",
 			mutedStyle.Render("on "+m.formID),
@@ -207,13 +251,32 @@ func (m Model) viewOverlayCard() string {
 func (m Model) postComment(text string) tea.Cmd {
 	ws := m.workspaceID()
 	id := m.detail.ID
+	members := m.mentionCandidates()
+	bindings := m.mentionBindings
+	segments := clickup.BuildCommentSegments(text, bindings, members)
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		if err := m.client.CreateComment(ctx, ws, id, text); err != nil {
+		if err := m.client.CreateCommentRich(ctx, ws, id, segments, text); err != nil {
 			return doneMsg{err: err}
 		}
 		return doneMsg{status: "Comment posted", then: m.loadDetail(id)}
+	}
+}
+
+type membersMsg struct {
+	members []clickup.User
+	err     error
+}
+
+func (m Model) loadWorkspaceMembers() tea.Cmd {
+	ws := m.workspaceID()
+	client := m.client
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		members, err := client.WorkspaceMembers(ctx, ws)
+		return membersMsg{members: members, err: err}
 	}
 }
 

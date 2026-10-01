@@ -152,6 +152,12 @@ type Model struct {
 	statusTaskID  string
 	statusListID  string
 	statusCurrent string
+
+	members          []clickup.User
+	mentionBindings  map[string]int // @token → user id from picker inserts
+	mentionCursor    int
+	mentionSuppress  bool
+	mentionSuppressQ string
 }
 
 // yankedTime is a timesheet row snapshot for yy / p.
@@ -273,6 +279,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spin, cmd = m.spin.Update(msg)
 		return m, cmd
 
+	case membersMsg:
+		if msg.err != nil {
+			// Soft-fail — comments still work without mentions.
+			return m, nil
+		}
+		m.members = msg.members
+		return m, nil
+
 	case bootMsg:
 		m.loading = false
 		if msg.err != nil && msg.user.ID == 0 {
@@ -281,6 +295,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.user = msg.user
 		m.workspace = msg.workspace
+		m.members = workspaceUsers(msg.workspace)
 		m.booted = true
 		m.err = msg.err
 		m.today.setTasks(msg.tasks)
@@ -915,7 +930,10 @@ func (m Model) helpText() string {
 	if m.overlay != overlayNone {
 		switch m.overlay {
 		case overlayComment:
-			return "ctrl+s submit   esc cancel"
+			if m.mentionQueryOpen() {
+				return "↑/↓ mention   enter insert   esc dismiss   ctrl+s submit"
+			}
+			return "ctrl+s submit   @ mention   esc cancel"
 		case overlayConfirmDelete:
 			return "y delete   n/esc cancel"
 		case overlayStatus:

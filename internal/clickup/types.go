@@ -17,8 +17,13 @@ type UserResponse struct {
 }
 
 type Workspace struct {
-	ID   FlexString `json:"id"`
-	Name string     `json:"name"`
+	ID      FlexString        `json:"id"`
+	Name    string            `json:"name"`
+	Members []WorkspaceMember `json:"members,omitempty"`
+}
+
+type WorkspaceMember struct {
+	User User `json:"user"`
 }
 
 type WorkspacesResponse struct {
@@ -116,9 +121,21 @@ type CommentsResponse struct {
 	Comments []Comment `json:"comments"`
 }
 
+// CommentSegment is one piece of a rich task comment (text or @tag).
+type CommentSegment struct {
+	Text string       `json:"text,omitempty"`
+	Type string       `json:"type,omitempty"`
+	User *CommentUser `json:"user,omitempty"`
+}
+
+type CommentUser struct {
+	ID int `json:"id"`
+}
+
 type CreateCommentRequest struct {
-	CommentText string `json:"comment_text"`
-	NotifyAll   bool   `json:"notify_all,omitempty"`
+	CommentText string           `json:"comment_text,omitempty"`
+	Comment     []CommentSegment `json:"comment,omitempty"`
+	NotifyAll   bool             `json:"notify_all,omitempty"`
 }
 
 type TimeEntryTask struct {
