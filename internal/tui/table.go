@@ -151,12 +151,13 @@ func tableOuterWidth(cols []tableCol) int {
 // renderBoxTable draws a creel results-panel style grid: a solid dark outer
 // frame (no tab junctions into the perimeter) with muted inner column/header dividers.
 func renderBoxTable(cols []tableCol, rows []boxRow) string {
-	return renderBoxTableChrome(cols, rows, nil, -1, "")
+	return renderBoxTableChrome(cols, rows, nil, -1, "", -1, false)
 }
 
 // renderBoxTableChrome draws the table with optional folder-style tabs whose
 // active tab opens into the table top border (card-switching chrome).
-func renderBoxTableChrome(cols []tableCol, rows []boxRow, tabLabels []string, activeTab int, meta string) string {
+// sortCol < 0 means natural order; otherwise that header shows ▲/▼.
+func renderBoxTableChrome(cols []tableCol, rows []boxRow, tabLabels []string, activeTab int, meta string, sortCol int, sortDesc bool) string {
 	if len(cols) == 0 {
 		return ""
 	}
@@ -178,7 +179,8 @@ func renderBoxTableChrome(cols []tableCol, rows []boxRow, tabLabels []string, ac
 	// Header row
 	b.WriteString(outer.Render("│"))
 	for j, c := range cols {
-		title := tableHeaderStyle.Render(plainCell(c.Title, c.Width))
+		label := c.Title + sortIndicator(sortCol, j, sortDesc)
+		title := tableHeaderStyle.Render(plainCell(label, c.Width))
 		b.WriteString(" " + title + " ")
 		if j < len(cols)-1 {
 			b.WriteString(inner.Render("│"))

@@ -101,7 +101,7 @@ func TestRenderBoxTableChromeHasTabs(t *testing.T) {
 	}
 	out := renderBoxTableChrome(cols, []boxRow{
 		{Cells: []string{"09:30", "Fix login"}},
-	}, []string{"WEEK", "TIME"}, 0, "ws")
+	}, []string{"WEEK", "TIME"}, 0, "ws", -1, false)
 	for _, want := range []string{"WEEK", "TIME", "START", "TASK", "09:30", "ws"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q in:\n%s", want, out)

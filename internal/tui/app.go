@@ -172,11 +172,14 @@ type yankedTime struct {
 }
 
 type listState struct {
-	items  []any
-	cursor int // task/entry index in items
-	selRow int // week view: selected row in weekRows (-1 unset)
-	offset int
-	col    int // focused cell column (creel-style)
+	items    []any
+	cursor   int  // task/entry index in items
+	selRow   int  // week view: selected row in weekRows (-1 unset)
+	offset   int
+	col      int  // focused cell column (creel-style)
+	sortCol  int  // sorted column; -1 = natural order
+	sortDesc bool
+	unsorted []any // snapshot before timesheet sort reorder
 }
 
 func New(client *clickup.Client, cfg *config.Config) *Model {
@@ -210,6 +213,9 @@ func New(client *clickup.Client, cfg *config.Config) *Model {
 		comment:     ta,
 		input:       ti,
 		statusCache: make(map[string][]clickup.ListStatus),
+		today:       listState{sortCol: -1, selRow: -1},
+		timesheet:   listState{sortCol: -1},
+		search:      listState{sortCol: -1},
 	}
 }
 
@@ -947,17 +953,17 @@ func (m Model) helpText() string {
 	}
 	switch m.tab {
 	case tabTime:
-		help := "[/] day   t today   ↑/↓/←/→ move   enter edit/open   i edit   yy yank   p paste   o browser   a add   d delete   r refresh   q quit"
+		help := "[/] day   t today   ↑/↓/←/→ move   enter edit/open   i edit   yy yank   p paste   f sort   o browser   a add   d delete   r refresh   q quit"
 		if searchEnabled {
-			help = "[/] day   t today   ↑/↓/←/→ move   enter edit/open   i edit   yy yank   p paste   o browser   a add   d delete   r refresh   / search   q quit"
+			help = "[/] day   t today   ↑/↓/←/→ move   enter edit/open   i edit   yy yank   p paste   f sort   o browser   a add   d delete   r refresh   / search   q quit"
 		}
 		return help
 	case tabSearch:
 		return "↑/↓/←/→ move   enter open   s status   t log time   o browser   / search   r refresh   q quit"
 	default:
-		help := "[/] week   T this week   ↑/↓/←/→ move   enter open   s status   t log time   o browser   r refresh   q quit"
+		help := "[/] week   T this week   ↑/↓/←/→ move   enter open   f sort   s status   t log time   o browser   r refresh   q quit"
 		if searchEnabled {
-			help = "[/] week   T this week   ↑/↓/←/→ move   enter open   s status   t log time   o browser   r refresh   / search   q quit"
+			help = "[/] week   T this week   ↑/↓/←/→ move   enter open   f sort   s status   t log time   o browser   r refresh   / search   q quit"
 		}
 		return help
 	}
@@ -975,6 +981,10 @@ func (m *listState) setEntries(entries []clickup.TimeEntry) {
 	m.items = make([]any, len(entries))
 	for i := range entries {
 		m.items[i] = entries[i]
+	}
+	m.unsorted = nil
+	if m.sorting() {
+		m.applyEntrySort()
 	}
 	m.cursor = clamp(m.cursor, 0, max(len(m.items)-1, 0))
 }

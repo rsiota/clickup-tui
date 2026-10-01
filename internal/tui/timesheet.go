@@ -92,6 +92,13 @@ func (m *Model) updateTimesheet(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "o":
 		return m.openFocusedInBrowser()
+	case "f":
+		m.timesheet.cycleSort(m.timesheet.col)
+		m.timesheet.applyEntrySort()
+		m.timesheet.cursor = clamp(m.timesheet.cursor, 0, max(len(m.timesheet.items)-1, 0))
+		m.timesheet.offset = ensureVisible(m.timesheet.cursor, m.timesheet.offset, h)
+		m.status = sortStatus("time", m.timesheet)
+		return m, nil
 	}
 	return m, nil
 }
@@ -309,7 +316,7 @@ func (m *Model) viewTimesheet(height int) string {
 
 	var b strings.Builder
 	if len(entries) == 0 {
-		b.WriteString(renderBoxTableChrome(cols, nil, tabs, active, meta))
+		b.WriteString(renderBoxTableChrome(cols, nil, tabs, active, meta, m.timesheet.sortCol, m.timesheet.sortDesc))
 		b.WriteByte('\n')
 		if m.loading {
 			b.WriteString(" " + m.spin.View() + " loading timesheet…")
@@ -376,7 +383,7 @@ func (m *Model) viewTimesheet(height int) string {
 			Editing:  editing,
 		})
 	}
-	b.WriteString(renderBoxTableChrome(cols, boxRows, tabs, active, meta))
+	b.WriteString(renderBoxTableChrome(cols, boxRows, tabs, active, meta, m.timesheet.sortCol, m.timesheet.sortDesc))
 	b.WriteByte('\n')
 	b.WriteString(" " + summary)
 	return b.String()

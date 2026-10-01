@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -53,6 +54,10 @@ func (m *Model) updateToday(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "o":
 		return m.openFocusedInBrowser()
+	case "f":
+		m.today.cycleSort(m.today.col)
+		m.status = sortStatus("week", m.today)
+		return m, nil
 	}
 	return m, nil
 }
@@ -117,7 +122,7 @@ func (m Model) viewToday(height int) string {
 		var b strings.Builder
 		// Keep tab chrome visible while loading.
 		cols := weekTableCols(contentWidth(m.width), 6)
-		b.WriteString(renderBoxTableChrome(cols, nil, tabs, active, meta))
+		b.WriteString(renderBoxTableChrome(cols, nil, tabs, active, meta, m.today.sortCol, m.today.sortDesc))
 		b.WriteString("\n")
 		b.WriteString(" " + m.spin.View() + " loading week’s tasks…")
 		return b.String()
@@ -137,7 +142,7 @@ func (m Model) viewToday(height int) string {
 	offset := ensureVisible(sel, m.today.offset, avail)
 
 	var b strings.Builder
-	b.WriteString(renderWeekBox(rows, sel, m.today.col, offset, avail, cols, tabs, active, meta))
+	b.WriteString(renderWeekBox(rows, sel, m.today.col, offset, avail, cols, tabs, active, meta, m.today.sortCol, m.today.sortDesc))
 	b.WriteByte('\n')
 	b.WriteString(" " + summary)
 	return b.String()
@@ -176,8 +181,29 @@ func (m Model) weekRows(tasks []clickup.Task) []listRow {
 		byDay[idx] = append(byDay[idx], indexed{task: t, index: i})
 	}
 
+	sortCol := m.today.sortCol
+	sortDesc := m.today.sortDesc
+	if sortCol > 0 {
+		for d := range byDay {
+			sort.SliceStable(byDay[d], func(i, j int) bool {
+				cmp := cmpTask(byDay[d][i].task, byDay[d][j].task, sortCol)
+				if sortDesc {
+					return cmp > 0
+				}
+				return cmp < 0
+			})
+		}
+	}
+
+	days := []int{0, 1, 2, 3, 4, 5, 6}
+	if sortCol == 0 && sortDesc {
+		for i, j := 0, len(days)-1; i < j; i, j = i+1, j-1 {
+			days[i], days[j] = days[j], days[i]
+		}
+	}
+
 	var rows []listRow
-	for i := 0; i < 7; i++ {
+	for _, i := range days {
 		day := start.AddDate(0, 0, i)
 		isToday := day.Equal(todayStart)
 		label := day.Format("Mon 2 Jan")
@@ -234,7 +260,7 @@ func ensureVisible(sel, offset, height int) int {
 	return offset
 }
 
-func renderWeekBox(rows []listRow, cursor, col, offset, height int, cols []tableCol, tabLabels []string, activeTab int, meta string) string {
+func renderWeekBox(rows []listRow, cursor, col, offset, height int, cols []tableCol, tabLabels []string, activeTab int, meta string, sortCol int, sortDesc bool) string {
 	if height < 1 {
 		height = 1
 	}
@@ -275,7 +301,7 @@ func renderWeekBox(rows []listRow, cursor, col, offset, height int, cols []table
 			FocusCol: col,
 		})
 	}
-	return renderBoxTableChrome(cols, boxRows, tabLabels, activeTab, meta)
+	return renderBoxTableChrome(cols, boxRows, tabLabels, activeTab, meta, sortCol, sortDesc)
 }
 
 func renderTaskBox(rows []listRow, cursor, col, offset, height int, cols []tableCol) string {
