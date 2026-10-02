@@ -22,19 +22,23 @@ func (c *Client) CreateComment(ctx context.Context, workspace, taskID, text stri
 }
 
 // CreateCommentRich posts a structured comment (supports @tags).
+// ClickUp concatenates comment_text and comment when both are set, so we
+// send exactly one: the rich comment array when tagging, else plain text.
 func (c *Client) CreateCommentRich(ctx context.Context, workspace, taskID string, segments []CommentSegment, plain string) error {
 	path := fmt.Sprintf("/v2/task/%s/comment", taskID) + taskScopeQuery(taskID, workspace)
+	return c.do(ctx, http.MethodPost, path, buildCreateCommentRequest(segments, plain), nil)
+}
+
+func buildCreateCommentRequest(segments []CommentSegment, plain string) CreateCommentRequest {
+	for _, s := range segments {
+		if s.Type == "tag" {
+			return CreateCommentRequest{Comment: segments}
+		}
+	}
 	if plain == "" {
 		plain = PlainCommentText(segments)
 	}
-	req := CreateCommentRequest{CommentText: plain}
-	for _, s := range segments {
-		if s.Type == "tag" {
-			req.Comment = segments
-			break
-		}
-	}
-	return c.do(ctx, http.MethodPost, path, req, nil)
+	return CreateCommentRequest{CommentText: plain}
 }
 
 // MentionToken is the @handle inserted in the TUI for a user (no spaces).

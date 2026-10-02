@@ -1,9 +1,51 @@
 package clickup
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
+
+func TestBuildCreateCommentRequestPlainOnly(t *testing.T) {
+	req := buildCreateCommentRequest([]CommentSegment{{Text: "hello"}}, "hello")
+	b, err := json.Marshal(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatal(err)
+	}
+	if m["comment_text"] != "hello" {
+		t.Fatalf("comment_text=%v", m["comment_text"])
+	}
+	if _, ok := m["comment"]; ok {
+		t.Fatalf("plain comment must not include comment array: %s", b)
+	}
+}
+
+func TestBuildCreateCommentRequestTagOmitsPlain(t *testing.T) {
+	segs := []CommentSegment{
+		{Text: "Hi "},
+		{Type: "tag", User: &CommentUser{ID: 10}},
+		{Text: " please"},
+	}
+	req := buildCreateCommentRequest(segs, "Hi @Ada please")
+	b, err := json.Marshal(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := m["comment_text"]; ok {
+		t.Fatalf("tagged comment must not include comment_text (duplicates content): %s", b)
+	}
+	if _, ok := m["comment"]; !ok {
+		t.Fatalf("expected comment array: %s", b)
+	}
+}
 
 func TestMentionTokenStripsSpaces(t *testing.T) {
 	if got := MentionToken(User{Username: "Ada Lovelace", ID: 1}); got != "AdaLovelace" {
