@@ -11,14 +11,16 @@ import (
 // Panel chrome sizing: keep WEEK/TIME/task cards readable on wide terminals.
 const (
 	panelMinWidth = 40
+	panelMaxWidth = 120
 	panelPadX     = 1 // matches table cell side padding (" value ")
 	panelPadY     = 1
 )
 
-// contentWidth is the outer width of list/detail cards — half the terminal,
-// floored at panelMinWidth so narrow windows still fit the chrome.
+// contentWidth is the outer width of list/detail cards — the full terminal
+// width (so split panes stay usable), capped so ultrawide windows don't
+// stretch columns, and floored at panelMinWidth for tiny terminals.
 func contentWidth(termW int) int {
-	return max(termW/2, panelMinWidth)
+	return max(min(termW, panelMaxWidth), panelMinWidth)
 }
 
 // tableCol is a fixed-width column for boxed tables (creel-style).

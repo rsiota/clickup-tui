@@ -109,14 +109,17 @@ func TestRenderBoxTableChromeHasTabs(t *testing.T) {
 	}
 }
 
-func TestContentWidthHalfTerminal(t *testing.T) {
-	if got := contentWidth(200); got != 100 {
-		t.Fatalf("wide terminal: got %d, want 100", got)
+func TestContentWidthUsesPaneWithCap(t *testing.T) {
+	if got := contentWidth(200); got != panelMaxWidth {
+		t.Fatalf("wide terminal: got %d, want %d", got, panelMaxWidth)
 	}
-	if got := contentWidth(120); got != 60 {
+	if got := contentWidth(80); got != 80 {
+		t.Fatalf("split pane: got %d, want 80", got)
+	}
+	if got := contentWidth(60); got != 60 {
 		t.Fatalf("mid terminal: got %d, want 60", got)
 	}
-	if got := contentWidth(60); got != panelMinWidth {
+	if got := contentWidth(30); got != panelMinWidth {
 		t.Fatalf("narrow terminal: got %d, want %d", got, panelMinWidth)
 	}
 }
